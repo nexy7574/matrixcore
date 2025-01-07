@@ -1,0 +1,384 @@
+# Copyright 2025 nexy7574 <https://github.com/nexy7574>
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+import sys
+
+import httpx
+from importlib.metadata import version as package_version
+from typing import Any, Literal, TypeVar, Type, Self
+
+from urllib.parse import quote
+
+from pydantic import BaseModel, ValidationError
+
+from .errors import MatrixHTTPException, BadResponse
+from .models import WhoAmI, LoginResponse, LoginFlows, Empty, JoinResponse, EventSendResponse
+
+T = TypeVar("T")
+
+
+class MatrixCore:
+    """
+    Next generation client library for nio-bot.
+    """
+
+    USER_AGENT = "NioBot+MatrixCore/0.0.0 (+https://pypi.org/p/nio-bot) python/{} httpx/{} niobot/{}".format(
+        ".".join(sys.version_info[:3]),
+        package_version("httpx"),
+        package_version("nio-bot"),  # if you get an error with this while developing locally, `pip install .`
+    )
+
+    def __init__(
+        self,
+        homeserver_base_url: str,
+    ):
+        self.homeserver_base_url = homeserver_base_url
+        self.http = httpx.AsyncClient(
+            headers={"User-Agent": self.USER_AGENT},
+            base_url=homeserver_base_url,
+        )
+        self.user_id: str | None = None
+        self.device_id: str | None = None
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(self, *_):
+        await self.close()
+
+    @property
+    def access_token(self) -> str | None:
+        """The current access token, if any"""
+        header = self.http.headers.get("Authorization", "")
+        try:
+            return header.split()[1]
+        except ValueError:
+            return
+
+    @access_token.setter
+    def access_token(self, access_token: str) -> None:
+        self.http.headers["Authorization"] = f"Bearer {access_token}"
+
+    @staticmethod
+    def construct_uri(*parts: str | int, no_escape: bool = False) -> str:
+        """
+        Constructs a URI (excluding base URL) to pass to a request.
+
+        :param parts: Each part to join with a /. If no_escape is False, this will urlencode each part.
+        :param no_escape: If true, automatic URL encoding is disabled.
+        :return: URI (excluding base URL).
+        """
+        if no_escape:
+            return "/" + "/".join(map(str, parts))
+        else:
+            constructed = [quote(x, safe="") for x in map(str, parts)]
+            return "/" + "/".join(constructed)
+
+    async def _get(
+        self,
+        uri: str,
+        query_params: dict[str, Any] | None = None,
+        extra_headers: dict[str, Any] | None = None,
+        *,
+        timeout: httpx.Timeout | float | int | None = None,
+        model: T[Type[BaseModel]] | None,
+    ) -> T:
+        """
+        Attempts to make a GET request with the given parameters.
+
+        :param uri: URI to make a GET request.
+        :param query_params: Query parameters to pass to the GET request.
+        :param extra_headers: Extra headers to pass to the GET request.
+        :param timeout: Override timeout for this request.
+        :param model: The model to parse the response with. None to receive the raw JSON data.
+        :return: The validated model
+        """
+        kwargs = {}
+        if query_params:
+            kwargs["params"] = query_params
+        if extra_headers is not None:
+            kwargs["headers"] = extra_headers
+        if timeout is not None:
+            kwargs["timeout"] = timeout
+        response = await self.http.get(uri, **kwargs)
+        if response.status_code not in range(200, 300):
+            raise MatrixHTTPException.from_response(response)
+
+        data = response.json()
+        if model is None:
+            return data
+        try:
+            return model.model_validate(data)
+        except ValidationError:
+            raise BadResponse(data, model)
+
+    async def _post(
+        self,
+        uri: str,
+        data: dict[str, Any] | bytes | None,
+        query_params: dict[str, Any] | None = None,
+        extra_headers: dict[str, Any] | None = None,
+        *,
+        timeout: httpx.Timeout | float | int | None = None,
+        model: T[Type[BaseModel]],
+    ) -> T:
+        """
+        Attempts to make a POST request with the given parameters.
+
+        :param uri: URI to make a POST request.
+        :param query_params: Query parameters to pass to the POST request.
+        :param extra_headers: Extra headers to pass to the POST request.
+        :param data: Data to pass to the POST request.
+        :param timeout: Override timeout for this request.
+        :param model: The model to parse the response with. None to receive the raw JSON data.
+        :return: The validated model
+        """
+        kwargs = {}
+        if query_params:
+            kwargs["params"] = query_params
+        if extra_headers is not None:
+            kwargs["headers"] = extra_headers
+        if timeout is not None:
+            kwargs["timeout"] = timeout
+        if isinstance(data, bytes):
+            kwargs["body"] = data
+        elif isinstance(data, (dict, list)):
+            kwargs["json"] = data
+
+        response = await self.http.post(uri, **kwargs)
+        if response.status_code not in range(200, 300):
+            raise MatrixHTTPException.from_response(response)
+
+        data = response.json()
+        try:
+            return model.model_validate(data)
+        except ValidationError:
+            raise BadResponse(data, model)
+
+    def clear(self) -> Self:
+        """Clears the current login state (i.e. null user_id, access_token, device_id, etc.)"""
+        self.access_token = None
+        self.device_id = None
+        self.user_id = None
+        return self
+
+    async def close(self) -> None:
+        """Shuts down the client, closing any open connections, and clearing any state."""
+        await self.http.aclose()
+        self.clear()
+
+    async def decline_invite(self, room_id: str, reason: str = None) -> Empty:
+        """
+        Alias function for leave_room.
+        """
+        return await self.leave_room(room_id, reason)
+
+    async def get_login_types(self) -> LoginFlows:
+        """
+        Fetches the supported login types for this server.
+
+        :return: LoginFlows
+        :raises RateLimited: This request was rate-limited.
+        """
+        return await self._get(self.construct_uri("client", "v3", "login"), model=LoginFlows)
+
+    async def join_room(
+        self,
+        room_id_or_alias: str,
+        vias: list[str] = None,
+        reason: str = None,
+    ) -> JoinResponse:
+        """
+        Joins a room via a room ID *or* alias.
+
+        This function may take a long time to return and has the HTTP request timeout disabled.
+        You should use asyncio.wait_for with a custom timeout to prevent this function from running for longer
+        than is acceptable.
+
+        :param room_id_or_alias: Room ID or alias to join.
+        :param vias: List of server names to join through.
+        :param reason: A reason for joining
+        :return: JoinResponse - the result of joining. Includes a room ID.
+        :raises NotAuthorised: You did not authenticate.
+        :raises Forbidden: Your request to join was forbidden (e.g. user is banned, not invited, etc.)
+        :raises RateLimited: This request was rate-limited.
+        """
+        if not room_id_or_alias.startswith(("!", "#")):
+            raise ValueError("room_id_or_alias must start with '!' or '#'")
+        uri = self.construct_uri("client", "v3", "join", room_id_or_alias)
+        if vias:
+            # This dirty trick allows us to pass the same query params multiple times, which
+            # httpx traditionally does not seem to let us do.
+            prepared_vias = []
+            for server_name in vias:
+                encoded = quote(server_name, safe="")
+                prepared_vias += [
+                    "via=" + encoded,
+                    "server_name=" + encoded,
+                ]
+            uri += "?" + "&".join(prepared_vias)
+
+        data = {"reason": reason} if reason else {}
+        return await self._post(uri, data, timeout=httpx.Timeout(None), model=JoinResponse)
+
+    async def leave_room(self, room_id: str, reason: str = None) -> Empty:
+        """
+        Leaves a room (if the current user is in it), or declines an invitation to a room.
+
+        :param room_id: The room ID to leave.
+        :param reason: A reason for leaving. None to omit a reason.
+        :return: Empty - the request was successful.
+        :raises NotAuthorised: You did not authenticate.
+        :raises RateLimited: This request was rate-limited.
+        """
+        if not room_id.startswith("!"):
+            raise ValueError("room_id must start with '!'")
+
+        uri = self.construct_uri("client", "v3", "rooms", room_id, "leave")
+        data = {"reason": reason} if reason else {}
+        return await self._post(uri, data, model=Empty)
+
+    async def login(
+        self,
+        type: str,
+        device_id: str = None,
+        identifier: dict[Literal["type"] | str, Any] = None,
+        initial_device_display_name: str = None,
+        password: str = None,
+        token: str = None,
+    ) -> LoginResponse:
+        """
+        Performs a login with the given credentials.
+
+        This function, if successful, will populate this client's login state.
+
+        :param type: The type of login to perform. Usually "m.login.password". Can be fetched with `get_login_types`.
+        :param device_id: ID of the client device. Auto-generated if not provided. Must be consistent!
+        :param identifier: Identification information for a user
+        :param initial_device_display_name: Initial device display name. Ignored for existing `device_id`s.
+        :param password: Password for the user. Required when type is "m.login.password".
+        :param token: Token for the user. Required when type is "m.login.token".
+        :return: LoginResponse
+        :raises BadRequest: Part of the request was invalid. For example, the login type may not be recognised.
+        :raises Forbidden: The login attempt failed. This can include one of the following error codes:
+        :raises RateLimited: This request was rate-limited.
+        :raises ValueError: You provided malformed data.
+        """
+        payload = {"type": type}
+        if device_id is not None:
+            payload["device_id"] = device_id
+        if initial_device_display_name is not None:
+            payload["initial_device_display_name"] = initial_device_display_name
+        if password is not None:
+            payload["password"] = password
+        if token is not None:
+            payload["token"] = token
+        if identifier is not None:
+            if "type" not in identifier:
+                raise ValueError("'type' is a required key in `identifier`")
+            payload["identifier"] = identifier
+
+        return await self._post(self.construct_uri("client", "v3", "login"), data=payload, model=LoginResponse)
+
+    async def logout(self, all_devices: bool = False) -> Empty:
+        """
+        Invalidates the current session, requiring re-authentication for further requests.
+
+        This function, if successful, will clear this client's login state.
+
+        :param all_devices: If True, this function calls logout_all instead.
+        :return: Empty - the request was successful.
+        :raises NotAuthorised: The access token was invalid or not provided.
+        """
+        if all_devices:
+            return await self.logout_all()
+        r = await self._post(self.construct_uri("client", "v3", "logout"), None, model=Empty)
+        self.clear()
+        return r
+
+    async def logout_all(self) -> Empty:
+        """
+        Invalidates all sessions for the authenticated user.
+
+        This function, if successful, will clear this client's login state.
+
+        :return: Empty - the request was successful.
+        :raises NotAuthorised: The access token was invalid or not provided.
+        """
+        r = await self._post(self.construct_uri("client", "v3", "logout", "all"), None, model=Empty)
+        self.clear()
+        return r
+
+    async def redact_event(
+        self, room_id: str, event_id: str, reason: str = None, txn_id: str = None
+    ) -> EventSendResponse:
+        """
+        Redacts an event in the given room.
+
+        :param room_id: The room ID to redact the event in.
+        :param event_id: The event ID to redact.
+        :param reason: The reason for redacting the event.
+        :param txn_id: The transaction ID for this event. If omitted, one will be generated. It is recommended that you
+        omit this unless you know what you are doing.
+        :return: EventSendResponse - the resulting m.room.redact timeline event's ID
+        :raises NotAuthorised: You did not authenticate.
+        :raises BadRequest: The request was malformed.
+        """
+        if not room_id.startswith("!"):
+            raise ValueError("room_id must start with '!'")
+
+        if not txn_id:
+            txn_id = hash((room_id, event_id, reason, self.access_token))
+
+        uri = self.construct_uri("client", "v3", "rooms", room_id, "redact", event_id, txn_id)
+        data = {"reason": reason} if reason else {}
+        return await self._post(uri, data, model=EventSendResponse)
+
+    async def send_event(self, room_id: str, event_type: str, body: BaseModel, txn_id: str = None) -> EventSendResponse:
+        """
+        Sends a single event in the given room.
+
+        :param room_id: The room ID to send the event in.
+        :param event_type: The type of event to send. Usually m.room.message.
+        :param body: The body of the event to send.
+        :param txn_id: The transaction ID for this event. If omitted, one will be generated. It is recommended that you
+        omit this unless you know what you are doing.
+        :return: EventSendResponse - the result of sending the event.
+        :raises NotAuthorised: You did not authenticate.
+        :raises BadRequest: The request was malformed.
+        """
+        if not room_id.startswith("!"):
+            raise ValueError("room_id must start with '!'")
+
+        if not txn_id:
+            txn_id = hash((body.model_dump_json(exclude_unset=True), room_id, event_type, self.access_token))
+
+        uri = self.construct_uri("client", "v3", "rooms", room_id, "send", event_type, txn_id)
+        data = body.model_dump(exclude_unset=True)
+        return await self._post(uri, data, model=EventSendResponse)
+
+    async def whoami(self) -> WhoAmI:
+        """
+        Fetches the data associated with the current access token.
+        Can be used to fetch your own user ID.
+
+        :return: WhoAmI
+        :raises NotAuthorized: The token is not recognised
+        :raises Forbidden: The appservice cannot masquerade as the user or has not registered them.
+        :raises RateLimited: This request was rate-limited.
+        """
+        response: WhoAmI = await self._get(self.construct_uri("client", "v3", "account", "whoami"), model=WhoAmI)
+        self.user_id = response.user_id
+        if response.device_id:
+            self.device_id = response.device_id
+        return response
