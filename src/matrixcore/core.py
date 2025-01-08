@@ -33,6 +33,7 @@ from .models import (
     StrippedStateEvent,
     UserProfile,
     WhoAmI,
+    Any as AnyData
 )
 
 T = TypeVar("T")
@@ -479,7 +480,7 @@ class MatrixCoreHTTPClient:
             self.construct_uri("client", "v3", "directory", "room", room_alias), model=ResolveRoomAliasResponse
         )
 
-    async def send_event(self, room_id: str, event_type: str, body: BaseModel, txn_id: str = None) -> EventSendResponse:
+    async def send_event(self, room_id: str, event_type: str, body: BaseModel | dict, txn_id: str = None) -> EventSendResponse:
         """
         Sends a single event in the given room.
 
@@ -494,6 +495,9 @@ class MatrixCoreHTTPClient:
         """
         if not room_id.startswith("!"):
             raise ValueError("room_id must start with '!'")
+
+        if not isinstance(body, BaseModel):
+            body = AnyData.model_validate(body)
 
         if not txn_id:
             txn_id = hash((body.model_dump_json(exclude_unset=True), room_id, event_type, self.access_token))

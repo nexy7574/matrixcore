@@ -30,7 +30,7 @@ from . import (
     MRoomJoinRules,
     MRoomName,
     MRoomPowerLevels,
-    MRoomTopic, MRoomMember,
+    MRoomTopic, MRoomMember, EventSendResponse,
 )
 
 if typing.TYPE_CHECKING:
@@ -371,3 +371,13 @@ class Room:
         key = (event.type, event.state_key)
         self.raw_state[key] = event
         return self
+
+    async def send(self, event_type: str, event: BaseModel | dict) -> EventSendResponse:
+        """
+        Sends a message to the room.
+
+        :param event_type: The event type to send.
+        :param event: The event to send.
+        :return: The response from the server.
+        """
+        return await self._client.http.send_event(self.id, event_type, event)
