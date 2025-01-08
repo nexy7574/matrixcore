@@ -20,6 +20,7 @@ from ipaddress import ip_address
 
 from pydantic import BaseModel, ValidationError
 
+from . import RoomSummary
 from .models import (
     ClientEventWithoutRoomID,
     EventSendResponse,
@@ -196,6 +197,8 @@ class Room:
         """The ACLs for this room"""
         self.power_levels: MRoomPowerLevels | None = None
         """The power levels for this room"""
+        self.summary: RoomSummary | None = None
+        """The room's summary, if available."""
         # Here we use the parsed event body as it has some utility functions. Normally we'd wrap it.
         self.members: dict[str, MRoomMember] = {}
         """
@@ -226,6 +229,35 @@ class Room:
             " creator={0.creator!r} type={0.type} guest_access={0.guest_access} join_rule={0.join_rule} "
             "history_visibility={0.history_visibility} avatar={0.avatar!r} canonical_alias={0.canonical_alias!r}>"
         ).format(self)
+
+    @property
+    def display_name(self) -> str:
+        """Calculates a display name for this room."""
+        if self.name:
+            # explicitly set
+            return self.name
+        if self.canonical_alias:
+            # No name but have a canonical alias
+            return self.canonical_alias
+        # If the number of m.heroes for the room are greater or equal to
+        # m.joined_member_count + m.invited_member_count - 1, then use the membership events for the heroes to
+        # calculate display names for the users (disambiguating them if required) and concatenating them.
+        # For example, the client may choose to show “Alice, Bob, and Charlie (@charlie:example.org)” as the room name.
+        # The client may optionally limit the number of users it uses to generate a room name.
+        chosen_members = []
+        for user_id, member in self.members.items():
+            if member.membership == "join" and user_id != self._client.http.user_id:
+                chosen_members.append(member.displayname or user_id)
+
+        if not chosen_members:
+            return "Empty room"
+
+        if len(chosen_members) == 1:
+            return chosen_members[0]
+        elif len(chosen_members) == 2:
+            return f"{chosen_members[0]} and {chosen_members[1]}"
+        else:
+            return f"{chosen_members[0]}, {chosen_members[1]}, and {len(chosen_members) - 2} others"
 
     def get_members(self, membership_state: typing.Literal["join", "leave", "knock", "ban"] | None = "join") -> list:
         """

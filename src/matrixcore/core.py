@@ -680,6 +680,8 @@ class MatrixCore:
                     if room_id not in self.joined_rooms:
                         prev_state = self._remove_room_from_register(room_id)
                         room_obj = Room(room_id, client=self)
+                        if joined_room.summary:
+                            room_obj.summary = joined_room.summary
                         room_states[room_id] = (prev_state, "join")
                         self.joined_rooms[room_id] = room_obj
                         self.dispatch("room_join", room_obj)
