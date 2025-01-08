@@ -704,3 +704,16 @@ class MatrixCore:
             self.next_batch = data.next_batch
 
         return data
+
+    async def password_login(
+            self,
+            user_id: str,
+            password: str,
+            device_id: str = None,
+    ) -> LoginResponse:
+        response = await self.http.login(
+            "m.login.password",
+            device_id=device_id,
+            identifier={"type": "m.id.user", "user": self.http.user_id},
+            password=password
+        )

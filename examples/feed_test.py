@@ -20,8 +20,6 @@ now = time.time()
 async def on_message(room: matrixcore.Room, event: matrixcore.ClientEventWithoutRoomID):
     if event.origin_server_ts / 1000 < now:
         return
-    if room.id != "!general-v2:nexy7574.co.uk":
-        return
     content = matrixcore.Message.model_validate(event.content)
     print(f"[{room.name} at {event.origin_server_ts * 1000}] <{event.sender}>: {content.body}", end="\n\n")
     if content.body.startswith("!matrixcore test"):
