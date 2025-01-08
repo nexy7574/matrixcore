@@ -15,9 +15,7 @@ import typing
 import zoneinfo
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-
-if typing.TYPE_CHECKING:
-    from ..media import MXCUri
+from ..media import MXCUri
 
 __all__ = [
     "Empty",
@@ -30,6 +28,10 @@ __all__ = [
     "RoomPredecessor",
     "ResolveRoomAliasResponse",
     "UserProfile",
+    "Filter",
+    "RoomFilter",
+    "RoomEventFilter",
+    "EventFilter"
 ]
 
 
@@ -169,3 +171,121 @@ class UserProfile(Any):
             return zoneinfo.ZoneInfo(str(value))
         except (ModuleNotFoundError, zoneinfo.ZoneInfoNotFoundError):
             raise ValueError(f"Invalid timezone: {value}")
+
+
+class EventFilter(BaseModel):
+    limit: int = Field(default=None, gt=0)
+    not_senders: list[str] = None
+    """
+    A list of sender IDs to exclude. If this list is absent then no senders are excluded.
+    A matching sender will be excluded even if it is listed in the 'senders' filter.
+    """
+    not_types: list[str] = None
+    """
+    A list of event types to exclude. If this list is absent then no event types are excluded.
+    A matching type will be excluded even if it is listed in the 'types' filter.
+    A ‘*’ can be used as a wildcard to match any sequence of characters.
+    """
+    senders: list[str] = None
+    """A list of senders IDs to include. If this list is absent then all senders are included."""
+    types: list[str] = None
+    """
+    A list of event types to include. If this list is absent then all event types are included.
+    A '*' can be used as a wildcard to match any sequence of characters.
+    """
+
+
+class RoomEventFilter(BaseModel):
+    contains_url: bool | None = None
+    """
+    If true, includes only events with a url key in their content. If false, excludes those events.
+    If omitted, url key is not considered for filtering.
+    """
+    include_redundant_members: bool = False
+    """
+    If true, sends all membership events for all events, even if they have already been sent to the client.
+    Does not apply unless lazy_load_members is true. See Lazy-loading room members for more information.
+    Defaults to false.
+    """
+    lazy_load_members: bool = False
+    """
+    If true, enables lazy-loading of membership events. See Lazy-loading room members for more information.
+    Defaults to false.
+    """
+    limit: int = Field(default=None, gt=0)
+    """
+    The maximum number of events to return, must be an integer greater than 0.
+
+    Servers should apply a default value, and impose a maximum value to avoid resource exhaustion.
+    """
+    not_rooms: list[str] = None
+    """
+    A list of room IDs to exclude. If this list is absent then no rooms are excluded
+    A matching room will be excluded even if it is listed in the 'rooms' filter.
+    """
+    not_senders: list[str] = None
+    """
+    A list of sender IDs to exclude. If this list is absent then no senders are excluded.
+    A matching sender will be excluded even if it is listed in the 'senders' filter.
+    """
+    not_types: list[str] = None
+    """
+    A list of event types to exclude. If this list is absent then no event types are excluded.
+    A matching type will be excluded even if it is listed in the 'types' filter.
+    A ‘*’ can be used as a wildcard to match any sequence of characters.
+    """
+    rooms: list[str] = None
+    """A list of room IDs to include. If this list is absent then all rooms are included."""
+    senders: list[str] = None
+    """A list of senders IDs to include. If this list is absent then all senders are included."""
+    types: list[str] = None
+    """
+    A list of event types to include. If this list is absent then all event types are included.
+    A '*' can be used as a wildcard to match any sequence of characters.
+    """
+    unread_thread_notifications: bool = False
+    """If true, enables per-thread notification counts. Only applies to the /sync endpoint. Defaults to false."""
+
+
+class RoomFilter(BaseModel):
+    include_leave: bool = False
+    """Include rooms that the user has left in the sync, default false"""
+    not_rooms: list[str] = None
+    """
+    A list of room IDs to exclude. If this list is absent then no rooms are excluded.
+    A matching room will be excluded even if it is listed in the 'rooms' filter.
+    This filter is applied before the filters in ephemeral, state, timeline or account_data
+    """
+    rooms: list[str] = None
+    """
+    A list of room IDs to include. If this list is absent then all rooms are included.
+    This filter is applied before the filters in ephemeral, state, timeline or account_data
+    """
+    account_data: RoomEventFilter = None
+    """The per user account data to include for rooms."""
+    ephemeral: RoomEventFilter = None
+    """
+    The ephemeral events to include for rooms. 
+    These are the events that appear in the ephemeral property in the /sync response.
+    """
+    state: RoomEventFilter = None
+    """The state events to include for rooms."""
+    timeline: RoomEventFilter = None
+    """The message and state update events to include for rooms."""
+
+
+class Filter(BaseModel):
+    event_fields: list[str] = None
+    """
+    List of event fields to include. If this list is absent then all fields are included.
+    The entries are dot-separated paths for each property to include. So [‘content.body’] will include the ‘body’
+    field of the ‘content’ object. A server may include more fields than were requested.
+    """
+    event_format: typing.Literal["client", "federation"] = "client"
+    account_data: EventFilter = None
+    presence: EventFilter = None
+    room: RoomFilter = None
+
+
+class FilterResponse(BaseModel):
+    filter_id: str

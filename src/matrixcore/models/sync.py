@@ -146,7 +146,7 @@ class JoinedRoom(BaseModel):
     state: State = None
     ephemeral: Ephemeral = None
     summary: RoomSummary = None
-    timeline: dict = None
+    timeline: Timeline = None
     unread_notifications: NotificationCounts = None
     unread_threads_notifications: NotificationCounts = None
 

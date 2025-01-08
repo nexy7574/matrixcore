@@ -15,6 +15,7 @@ import asyncio
 import json
 import logging
 import sys
+import uuid
 from importlib.metadata import version as package_version
 from typing import Any, Literal, Self, Type, TypeVar, overload
 from urllib.parse import quote
@@ -22,7 +23,7 @@ from urllib.parse import quote
 import httpx
 from pydantic import BaseModel, ValidationError
 
-from .errors import BadResponse, MatrixHTTPException
+from .errors import MatrixHTTPException
 from .models import Any as AnyData
 from .models import (
     ClientEvent,
@@ -39,7 +40,9 @@ from .models import (
     SyncResponse,
     UserProfile,
     WhoAmI,
+    Filter
 )
+from .models.lib import FilterResponse
 from .room import Room
 
 T = TypeVar("T")
@@ -533,17 +536,21 @@ class MatrixCoreHTTPClient:
         """
         Syncs with the server
         """
+        if not self.user_id:
+            await self.whoami()
         query_params = {}
         if filter:
             if isinstance(filter, dict):
                 filter = json.dumps(filter, separators=(",", ":"))
             query_params["filter"] = filter
         if full_state is not None:
-            query_params["full_state"] = "true"
+            query_params["full_state"] = json.dumps(full_state)
         if set_presence:
             query_params["set_presence"] = set_presence
         if since:
             query_params["since"] = since
+        if timeout is not None and timeout > 0:
+            query_params["timeout"] = timeout * 1000
 
         data: SyncResponse = await self._get(
             self.construct_uri("client", "v3", "sync"),
@@ -552,6 +559,19 @@ class MatrixCoreHTTPClient:
             model=SyncResponse,
         )
         return data
+
+    async def upload_filter(self, content: Filter) -> FilterResponse:
+        """
+        Uploads a filter to the server, returning the filter ID
+        """
+        if not self.user_id:
+            raise ValueError("You must be logged in to do this.")
+        response = await self._post(
+            self.construct_uri("client", "v3", "user", self.user_id, "filter"),
+            data=content.model_dump(exclude_unset=True, exclude_none=True),
+            model=FilterResponse
+        )
+        return response
 
 
 class MatrixCore:
@@ -569,19 +589,8 @@ class MatrixCore:
         self.joined_rooms: dict[str, Room] = {}
         self.left_rooms: dict[str, LeftRoom] = {}
 
-        self.event_handlers = {}
-
-    async def on_room_join(self, room: Room):
-        pass
-
-    async def on_room_leave(self, room: Room | LeftRoom):
-        pass
-
-    async def on_room_knock(self, room: KnockedRoom):
-        pass
-
-    async def on_room_invite(self, room: InvitedRoom):
-        pass
+        self.event_handlers: dict[str, list] = {}
+        self._pending_callbacks: list[asyncio.Task[Any]] = []
 
     def _remove_room_from_register(self, room_id: str) -> str:
         x = self.invited_rooms.pop(room_id, None)
@@ -599,27 +608,64 @@ class MatrixCore:
             return "invite"
         return "unknown"
 
+    def dispatch(self, event: str, *data: Any, **kdata: Any) -> None:
+        """
+        Dispatches an event to any internal listeners.
+
+        :param event: The event to dispatch. E.g. m.room.message, room_join
+        :param data: The data to send.
+        :param kdata: The data to send.
+        :return: None
+        """
+        tasks = []
+        for callback in self.event_handlers.get(event, []):
+            task = asyncio.create_task(
+                callback(
+                    *data,
+                    **kdata
+                ),
+                name=f"callback_{event}_{uuid.uuid4().hex}"
+            )
+            task.add_done_callback(lambda t: self._pending_callbacks.remove(t))
+            tasks.append(task)
+        self._pending_callbacks += tasks
+
+    def on(self, event_name: str):
+        """Registers an event listener callback for :name"""
+        def wrapper(func):
+            self.event_handlers.setdefault(event_name, [])
+            if func in self.event_handlers[event_name]:
+                raise ValueError(f"{event_name} already registered {func}.")
+            self.event_handlers[event_name].append(func)
+            return func
+        return wrapper
+
     async def sync(
             self,
-            lazy_load_members: bool = False
+            sync_filter: Filter | str
     ) -> SyncResponse:
         """Syncs with the server"""
-        _f = None if lazy_load_members is False else {
-            "room": {
-                "state": {"lazy_load_members": True},
-                "timeline": {"lazy_load_members": True}
-            }
-        }
-        data = await self.http.sync(_f, timeout=None if self.next_batch is None else 48)
+        if isinstance(sync_filter, Filter):
+            sync_filter = (await self.http.upload_filter(sync_filter)).filter_id
+        data = await self.http.sync(
+            sync_filter,
+            timeout=None if self.next_batch is None else 48,
+            since=self.next_batch
+        )
+        self.dispatch("sync", data)
 
         async with self._sync_lock:
             room_states = {}
+            if not data.rooms:
+                self.next_batch = data.next_batch
+                return data
             if data.rooms.invite:
                 for room_id, room in data.rooms.invite.items():
                     if room_id not in self.invited_rooms:
                         prev_state = self._remove_room_from_register(room_id)
                         self.invited_rooms[room_id] = room
                         room_states[room_id] = (prev_state, "invite")
+                        self.dispatch("room_invite", room)
 
             if data.rooms.knock:
                 for room_id, room in data.rooms.knock.items():
@@ -627,6 +673,7 @@ class MatrixCore:
                         prev_state = self._remove_room_from_register(room_id)
                         self.knocked_rooms[room_id] = room
                         room_states[room_id] = (prev_state, "knock")
+                        self.dispatch("room_knock", room)
 
             if data.rooms.join:
                 for room_id, joined_room in data.rooms.join.items():
@@ -635,12 +682,17 @@ class MatrixCore:
                         room_obj = Room(room_id, client=self)
                         room_states[room_id] = (prev_state, "join")
                         self.joined_rooms[room_id] = room_obj
+                        self.dispatch("room_join", room_obj)
                     else:
                         room_obj = self.joined_rooms[room_id]
 
                     if joined_room.state:
                         for event in joined_room.state.events:
                             room_obj.process_state_event(event)
+                        self.dispatch(event.type, room_obj, event)
+                    if joined_room.timeline:
+                        for event in joined_room.timeline.events:
+                            self.dispatch(event.type, room_obj, event)
 
             if data.rooms.leave:
                 for room_id, left_room in data.rooms.leave.items():
@@ -648,7 +700,7 @@ class MatrixCore:
                         prev_state = self._remove_room_from_register(room_id)
                         self.left_rooms[room_id] = left_room
                         room_states[room_id] = (prev_state, "leave")
-
+                        self.dispatch("room_leave", left_room)
             self.next_batch = data.next_batch
 
         return data
