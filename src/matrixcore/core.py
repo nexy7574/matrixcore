@@ -11,6 +11,7 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import json
 import logging
 import sys
 from collections.abc import Iterable
@@ -22,6 +23,7 @@ import httpx
 from pydantic import BaseModel, ValidationError
 
 from .errors import BadResponse, MatrixHTTPException
+from .models import Any as AnyData
 from .models import (
     ClientEvent,
     Empty,
@@ -33,7 +35,6 @@ from .models import (
     StrippedStateEvent,
     UserProfile,
     WhoAmI,
-    Any as AnyData
 )
 
 T = TypeVar("T")
@@ -62,6 +63,8 @@ class MatrixCoreHTTPClient:
         )
         self.user_id: str | None = None
         self.device_id: str | None = None
+
+        self.next_batch = None
 
     async def __aenter__(self) -> Self:
         return self
@@ -297,10 +300,7 @@ class MatrixCoreHTTPClient:
     async def get_room_state(self, room_id: str, event_type: str = None, state_key: str = None) -> dict[str, Any]: ...
 
     async def get_room_state(
-            self,
-            room_id: str,
-            event_type: str = None,
-            state_key: str = None
+        self, room_id: str, event_type: str = None, state_key: str = None
     ) -> list[ClientEvent | StrippedStateEvent] | dict[str, Any]:
         """
         Fetches all/a specific current state event(s) for a given room.
@@ -480,7 +480,9 @@ class MatrixCoreHTTPClient:
             self.construct_uri("client", "v3", "directory", "room", room_alias), model=ResolveRoomAliasResponse
         )
 
-    async def send_event(self, room_id: str, event_type: str, body: BaseModel | dict, txn_id: str = None) -> EventSendResponse:
+    async def send_event(
+        self, room_id: str, event_type: str, body: BaseModel | dict, txn_id: str = None
+    ) -> EventSendResponse:
         """
         Sends a single event in the given room.
 
@@ -521,6 +523,32 @@ class MatrixCoreHTTPClient:
         if response.device_id:
             self.device_id = response.device_id
         return response
+
+    async def sync(
+        self,
+        filter: str | dict = None,
+        full_state: bool = False,
+        set_presence: str | None = None,
+        since: str | None = None,
+        timeout: int = 48,
+    ) -> AnyData:
+        """
+        Syncs with the server
+        """
+        if since is None:
+            since = self.next_batch
+
+        query_params = {}
+        if filter:
+            if isinstance(filter, dict):
+                filter = json.dumps(filter, separators=(",", ":"))
+            query_params["filter"] = filter
+        if full_state is not None:
+            query_params["full_state"] = "true"
+        if set_presence:
+            query_params["set_presence"] = set_presence
+        if since:
+            query_params["since"] = since
 
 
 class MatrixCore:

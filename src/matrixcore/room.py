@@ -21,6 +21,7 @@ from ipaddress import ip_address
 from pydantic import BaseModel, ValidationError
 
 from . import (
+    EventSendResponse,
     MRoomAvatar,
     MRoomCanonicalAlias,
     MRoomCreate,
@@ -28,9 +29,10 @@ from . import (
     MRoomGuestAccess,
     MRoomHistoryVisibility,
     MRoomJoinRules,
+    MRoomMember,
     MRoomName,
     MRoomPowerLevels,
-    MRoomTopic, MRoomMember, EventSendResponse,
+    MRoomTopic,
 )
 
 if typing.TYPE_CHECKING:

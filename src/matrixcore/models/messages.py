@@ -15,7 +15,6 @@ import typing
 
 from pydantic import BaseModel
 
-
 __all__ = (
     "Message",
     "FormattedMessage",
@@ -24,6 +23,7 @@ __all__ = (
 
 class Message(BaseModel):
     """Base class for all message types"""
+
     body: typing.Any
     """The plain-text message body"""
     msgtype: str
@@ -32,6 +32,7 @@ class Message(BaseModel):
 
 class FormattedMessage(Message):
     """A formatted text message"""
+
     msgtype: typing.Literal["m.text"] = "m.text"
     format: str = None
     formatted_body: str = None
