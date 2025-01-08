@@ -20,7 +20,8 @@ from ipaddress import ip_address
 
 from pydantic import BaseModel, ValidationError
 
-from . import (
+from .models import (
+    ClientEventWithoutRoomID,
     EventSendResponse,
     MRoomAvatar,
     MRoomCanonicalAlias,
@@ -319,59 +320,64 @@ class Room:
             # Fetch specific event
             return await self._client.http.get_room_state(self.id, event_type, state_key)
 
-    def process_state_event(self, event: ClientEvent | StrippedStateEvent) -> typing.Self:
+    def process_state_event(self, event: ClientEvent | StrippedStateEvent | ClientEventWithoutRoomID) -> typing.Self:
         """
         Processes a state event and sets the appropriate attributes.
         """
-        match event.type:
-            case "m.room.create":
-                content = MRoomCreate.model_validate(event.content)
-                self.room_version = content.room_version
-                self.creator = content.creator or event.sender  # room v11+ has no creator field
-                self.federated = content.federate
-                self.predecessor = content.predecessor
-                self.type = content.type
-            case "m.room.name":
-                content = MRoomName.model_validate(event.content)
-                self.name = content.name
-            case "m.room.topic":
-                content = MRoomTopic.model_validate(event.content)
-                self.topic = content.topic
-            case "m.room.encryption":
-                MRoomEncryption.model_validate(event.content)
-                # There's nothing useful here, if this event exists, the room is encrypted. However, we should reject
-                # the event if it does not pass validation. In this case, an error will be raised.
-                self.encrypted = True
-            case "m.room.avatar":
-                content = MRoomAvatar.model_validate(event.content)
-                self.avatar = content.url
-            case "m.room.canonical_alias":
-                content = MRoomCanonicalAlias.model_validate(event.content)
-                self.canonical_alias = content.alias
-                self.alt_aliases = content.alt_aliases
-            case "m.room.guest_access":
-                content = MRoomGuestAccess.model_validate(event.content)
-                self.guest_access = GuestAccess(content.guest_access)
-            case "m.room.join_rules":
-                content = MRoomJoinRules.model_validate(event.content)
-                self.join_rule = JoinRule(content.join_rule)
-                self.join_conditions = content.allow
-            case "m.room.history_visibility":
-                content = MRoomHistoryVisibility.model_validate(event.content)
-                self.history_visibility = HistoryVisibility(content.history_visibility)
-            case "m.room.server_acl":
-                self.server_acls = ServerACLs.model_validate(event.content)
-            case "m.room.power_levels":
-                content = MRoomPowerLevels.model_validate(event.content)
-                self.power_levels = content
-            case "m.room.member":
-                content = MRoomMember.model_validate(event.content)
-                self.members[event.state_key or event.sender] = content
-            case _:
-                log.debug("Unrecognised state event while processing %s: %r", self.id, event)
-
-        key = (event.type, event.state_key)
-        self.raw_state[key] = event
+        try:
+            match event.type:
+                case "m.room.create":
+                    content = MRoomCreate.model_validate(event.content)
+                    self.room_version = content.room_version
+                    self.creator = content.creator or event.sender  # room v11+ has no creator field
+                    self.federated = content.federate
+                    self.predecessor = content.predecessor
+                    self.type = content.type
+                case "m.room.name":
+                    content = MRoomName.model_validate(event.content)
+                    self.name = content.name
+                case "m.room.topic":
+                    content = MRoomTopic.model_validate(event.content)
+                    self.topic = content.topic
+                case "m.room.encryption":
+                    MRoomEncryption.model_validate(event.content)
+                    # There's nothing useful here, if this event exists, the room is encrypted. However, we should reject
+                    # the event if it does not pass validation. In this case, an error will be raised.
+                    self.encrypted = True
+                case "m.room.avatar":
+                    content = MRoomAvatar.model_validate(event.content)
+                    self.avatar = content.url
+                case "m.room.canonical_alias":
+                    content = MRoomCanonicalAlias.model_validate(event.content)
+                    self.canonical_alias = content.alias
+                    self.alt_aliases = content.alt_aliases
+                case "m.room.guest_access":
+                    content = MRoomGuestAccess.model_validate(event.content)
+                    self.guest_access = GuestAccess(content.guest_access)
+                case "m.room.join_rules":
+                    content = MRoomJoinRules.model_validate(event.content)
+                    self.join_rule = JoinRule(content.join_rule)
+                    self.join_conditions = content.allow
+                case "m.room.history_visibility":
+                    content = MRoomHistoryVisibility.model_validate(event.content)
+                    self.history_visibility = HistoryVisibility(content.history_visibility)
+                case "m.room.server_acl":
+                    self.server_acls = ServerACLs.model_validate(event.content)
+                case "m.room.power_levels":
+                    content = MRoomPowerLevels.model_validate(event.content)
+                    self.power_levels = content
+                case "m.room.member":
+                    content = MRoomMember.model_validate(event.content)
+                    self.members[event.state_key or event.sender] = content
+                case _:
+                    log.debug("Unrecognised state event while processing %s: %r", self.id, event)
+        except ValidationError as e:
+            log.warning(
+                "Ignoring invalid state event for room %r: %r", self.id, event, exc_info=e
+            )
+        else:
+            key = (event.type, event.state_key)
+            self.raw_state[key] = event
         return self
 
     async def send(self, event_type: str, event: BaseModel | dict) -> EventSendResponse:

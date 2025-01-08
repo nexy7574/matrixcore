@@ -11,10 +11,10 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import asyncio
 import json
 import logging
 import sys
-from collections.abc import Iterable
 from importlib.metadata import version as package_version
 from typing import Any, Literal, Self, Type, TypeVar, overload
 from urllib.parse import quote
@@ -28,18 +28,26 @@ from .models import (
     ClientEvent,
     Empty,
     EventSendResponse,
+    InvitedRoom,
     JoinResponse,
+    KnockedRoom,
+    LeftRoom,
     LoginFlows,
     LoginResponse,
     ResolveRoomAliasResponse,
     StrippedStateEvent,
+    SyncResponse,
     UserProfile,
     WhoAmI,
 )
+from .room import Room
 
 T = TypeVar("T")
 T_MODEL_TYPE = TypeVar("T_MODEL_TYPE", bound=Type[BaseModel])
 T_MODEL_TYPE_COVAR = TypeVar("T_MODEL_TYPE_COVAR", covariant=True, bound=Type[BaseModel])
+
+
+log = logging.getLogger(__name__)
 
 
 class MatrixCoreHTTPClient:
@@ -63,8 +71,6 @@ class MatrixCoreHTTPClient:
         )
         self.user_id: str | None = None
         self.device_id: str | None = None
-
-        self.next_batch = None
 
     async def __aenter__(self) -> Self:
         return self
@@ -136,10 +142,8 @@ class MatrixCoreHTTPClient:
         data = response.json()
         if model is None:
             return data
-        try:
-            return model.model_validate(data)
-        except ValidationError:
-            raise BadResponse(data, model)
+
+        return model.model_validate(data)
 
     async def _post(
         self,
@@ -179,10 +183,7 @@ class MatrixCoreHTTPClient:
             raise MatrixHTTPException.from_response(response)
 
         data = response.json()
-        try:
-            return model.model_validate(data)
-        except ValidationError:
-            raise BadResponse(data, model)
+        return model.model_validate(data)
 
     async def _put(
         self,
@@ -222,10 +223,7 @@ class MatrixCoreHTTPClient:
             raise MatrixHTTPException.from_response(response)
 
         data = response.json()
-        try:
-            return model.model_validate(data)
-        except ValidationError:
-            raise BadResponse(data, model)
+        return model.model_validate(data)
 
     def clear(self) -> Self:
         """Clears the current login state (i.e. null user_id, access_token, device_id, etc.)"""
@@ -530,14 +528,11 @@ class MatrixCoreHTTPClient:
         full_state: bool = False,
         set_presence: str | None = None,
         since: str | None = None,
-        timeout: int = 48,
-    ) -> AnyData:
+        timeout: int | None = 48,
+    ) -> SyncResponse:
         """
         Syncs with the server
         """
-        if since is None:
-            since = self.next_batch
-
         query_params = {}
         if filter:
             if isinstance(filter, dict):
@@ -550,6 +545,14 @@ class MatrixCoreHTTPClient:
         if since:
             query_params["since"] = since
 
+        data: SyncResponse = await self._get(
+            self.construct_uri("client", "v3", "sync"),
+            query_params=query_params,
+            timeout=httpx.Timeout(timeout),
+            model=SyncResponse,
+        )
+        return data
+
 
 class MatrixCore:
     """
@@ -558,3 +561,94 @@ class MatrixCore:
 
     def __init__(self, homeserver_base_url: str):
         self.http = MatrixCoreHTTPClient(homeserver_base_url)
+        self._sync_lock = asyncio.Lock()
+
+        self.next_batch = None
+        self.invited_rooms: dict[str, InvitedRoom] = {}
+        self.knocked_rooms: dict[str, KnockedRoom] = {}
+        self.joined_rooms: dict[str, Room] = {}
+        self.left_rooms: dict[str, LeftRoom] = {}
+
+        self.event_handlers = {}
+
+    async def on_room_join(self, room: Room):
+        pass
+
+    async def on_room_leave(self, room: Room | LeftRoom):
+        pass
+
+    async def on_room_knock(self, room: KnockedRoom):
+        pass
+
+    async def on_room_invite(self, room: InvitedRoom):
+        pass
+
+    def _remove_room_from_register(self, room_id: str) -> str:
+        x = self.invited_rooms.pop(room_id, None)
+        y = x or self.knocked_rooms.pop(room_id, None)
+        z = y or self.joined_rooms.pop(room_id, None)
+        a = z or self.left_rooms.pop(room_id, None)
+
+        if a:
+            return "leave"
+        if z:
+            return "join"
+        if y:
+            return "knock"
+        if x:
+            return "invite"
+        return "unknown"
+
+    async def sync(
+            self,
+            lazy_load_members: bool = False
+    ) -> SyncResponse:
+        """Syncs with the server"""
+        _f = None if lazy_load_members is False else {
+            "room": {
+                "state": {"lazy_load_members": True},
+                "timeline": {"lazy_load_members": True}
+            }
+        }
+        data = await self.http.sync(_f, timeout=None if self.next_batch is None else 48)
+
+        async with self._sync_lock:
+            room_states = {}
+            if data.rooms.invite:
+                for room_id, room in data.rooms.invite.items():
+                    if room_id not in self.invited_rooms:
+                        prev_state = self._remove_room_from_register(room_id)
+                        self.invited_rooms[room_id] = room
+                        room_states[room_id] = (prev_state, "invite")
+
+            if data.rooms.knock:
+                for room_id, room in data.rooms.knock.items():
+                    if room_id not in self.knocked_rooms:
+                        prev_state = self._remove_room_from_register(room_id)
+                        self.knocked_rooms[room_id] = room
+                        room_states[room_id] = (prev_state, "knock")
+
+            if data.rooms.join:
+                for room_id, joined_room in data.rooms.join.items():
+                    if room_id not in self.joined_rooms:
+                        prev_state = self._remove_room_from_register(room_id)
+                        room_obj = Room(room_id, client=self)
+                        room_states[room_id] = (prev_state, "join")
+                        self.joined_rooms[room_id] = room_obj
+                    else:
+                        room_obj = self.joined_rooms[room_id]
+
+                    if joined_room.state:
+                        for event in joined_room.state.events:
+                            room_obj.process_state_event(event)
+
+            if data.rooms.leave:
+                for room_id, left_room in data.rooms.leave.items():
+                    if room_id not in self.left_rooms:
+                        prev_state = self._remove_room_from_register(room_id)
+                        self.left_rooms[room_id] = left_room
+                        room_states[room_id] = (prev_state, "leave")
+
+            self.next_batch = data.next_batch
+
+        return data

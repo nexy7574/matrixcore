@@ -122,7 +122,10 @@ class StrippedStateEvent(BaseModel):
     sender: str
     """The user ID of the sender of the event."""
     state_key: str
-    """A key which defines the state type of the event. For example, a key of 'foo' would represent a state event of type 'm.room.state.foo'."""
+    """
+    A key which defines the state type of the event. For example, a key of 'foo' would represent a state event of type
+    'm.room.state.foo'.
+    """
     type: str
     """The type of the event."""
 
@@ -266,14 +269,30 @@ class MRoomRedaction(BaseModel):
 
 class MRoomMember(BaseModel):
     """Represents the body of an m.room.member event"""
+    class ThirdPartyInvite(BaseModel):
+        display_name: str
+        class Signed(BaseModel):
+            mxid: str
+            signatures: dict[str, dict[str, str]]
+            token: str
 
     membership: typing.Literal["join", "leave", "ban", "invite", "knock"]
-    displayname: str = None
+    displayname: str | None = None
     avatar_url: MXCUri = None
     is_direct: bool = None
-    third_party_invite: dict[str, typing.Any] = None
-    reason: str = None
-    unsigned: dict[str, typing.Any] = None
+    join_authorised_via_users_server: str = None
+    """
+    Usually found on join events, this field is used to denote which homeserver
+    (through representation of a user with sufficient power level) authorised the user’s join.
+    More information about this field can be found in the Restricted Rooms Specification.
+
+    Client and server implementations should be aware of the signing implications of including this field in further
+    events: in particular, the event must be signed by the server which owns the user ID in the field.
+    When copying the membership event’s content (for profile updates and similar) it is therefore encouraged
+    to exclude this field in the copy, as otherwise the event might fail event authorization.
+    """
+    third_party_invite: ThirdPartyInvite = None
+    reason: str | None = None
 
 
 class MRoomPowerLevels(BaseModel):
