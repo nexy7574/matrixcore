@@ -13,12 +13,12 @@
 # limitations under the License.
 import datetime
 import json
-from typing import Union, Any, Type
+from typing import Any, Type, Union
 
 from httpx import Response
 
-
 __all__ = [
+    "BadResponse",
     "MatrixCoreException",
     "MatrixHTTPException",
     "NotAuthorised",

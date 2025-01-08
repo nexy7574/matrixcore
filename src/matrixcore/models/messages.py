@@ -11,8 +11,27 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from .core import *
-from .errors import *
-from .models import *
-from .room import *
-from .user import *
+import typing
+
+from pydantic import BaseModel
+
+
+__all__ = (
+    "Message",
+    "FormattedMessage",
+)
+
+
+class Message(BaseModel):
+    """Base class for all message types"""
+    body: typing.Any
+    """The plain-text message body"""
+    msgtype: str
+    """The message type"""
+
+
+class FormattedMessage(Message):
+    """A formatted text message"""
+    msgtype: typing.Literal["m.text"] = "m.text"
+    format: str = None
+    formatted_body: str = None

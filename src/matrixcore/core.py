@@ -11,31 +11,43 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import logging
 import sys
-
-import httpx
+from collections.abc import Iterable
 from importlib.metadata import version as package_version
-from typing import Any, Literal, TypeVar, Type, Self
-
+from typing import Any, Literal, Self, Type, TypeVar, overload
 from urllib.parse import quote
 
+import httpx
 from pydantic import BaseModel, ValidationError
 
-from .errors import MatrixHTTPException, BadResponse
-from .models import WhoAmI, LoginResponse, LoginFlows, Empty, JoinResponse, EventSendResponse
+from .errors import BadResponse, MatrixHTTPException
+from .models import (
+    ClientEvent,
+    Empty,
+    EventSendResponse,
+    JoinResponse,
+    LoginFlows,
+    LoginResponse,
+    ResolveRoomAliasResponse,
+    StrippedStateEvent,
+    UserProfile,
+    WhoAmI,
+)
 
 T = TypeVar("T")
+T_MODEL_TYPE = TypeVar("T_MODEL_TYPE", bound=Type[BaseModel])
+T_MODEL_TYPE_COVAR = TypeVar("T_MODEL_TYPE_COVAR", covariant=True, bound=Type[BaseModel])
 
 
-class MatrixCore:
+class MatrixCoreHTTPClient:
     """
-    Next generation client library for nio-bot.
+    Next generation client library HTTP backend
     """
 
-    USER_AGENT = "NioBot+MatrixCore/0.0.0 (+https://pypi.org/p/nio-bot) python/{} httpx/{} niobot/{}".format(
-        ".".join(sys.version_info[:3]),
+    USER_AGENT = "NioBot+MatrixCore/0.0.0 (+https://pypi.org/p/nio-bot) python/{} httpx/{}".format(
+        ".".join(map(str, sys.version_info[:3])),
         package_version("httpx"),
-        package_version("nio-bot"),  # if you get an error with this while developing locally, `pip install .`
     )
 
     def __init__(
@@ -43,7 +55,7 @@ class MatrixCore:
         homeserver_base_url: str,
     ):
         self.homeserver_base_url = homeserver_base_url
-        self.http = httpx.AsyncClient(
+        self.client = httpx.AsyncClient(
             headers={"User-Agent": self.USER_AGENT},
             base_url=homeserver_base_url,
         )
@@ -59,7 +71,7 @@ class MatrixCore:
     @property
     def access_token(self) -> str | None:
         """The current access token, if any"""
-        header = self.http.headers.get("Authorization", "")
+        header = self.client.headers.get("Authorization", "")
         try:
             return header.split()[1]
         except ValueError:
@@ -67,21 +79,24 @@ class MatrixCore:
 
     @access_token.setter
     def access_token(self, access_token: str) -> None:
-        self.http.headers["Authorization"] = f"Bearer {access_token}"
+        self.client.headers["Authorization"] = f"Bearer {access_token}"
 
     @staticmethod
-    def construct_uri(*parts: str | int, no_escape: bool = False) -> str:
+    def construct_uri(*parts: str | int, no_escape: bool = False, safe: str = None) -> str:
         """
         Constructs a URI (excluding base URL) to pass to a request.
 
         :param parts: Each part to join with a /. If no_escape is False, this will urlencode each part.
         :param no_escape: If true, automatic URL encoding is disabled.
+        :param safe: Characters to not escape. Only used if no_escape is False.
         :return: URI (excluding base URL).
         """
+        if not any(parts[0] == x for x in ("_matrix", "_synapse", "_dendrite", "_conduwuit")):  # note: inflexible!
+            parts = ("_matrix", *parts)
         if no_escape:
             return "/" + "/".join(map(str, parts))
         else:
-            constructed = [quote(x, safe="") for x in map(str, parts)]
+            constructed = [quote(x, safe=safe or "") for x in map(str, parts)]
             return "/" + "/".join(constructed)
 
     async def _get(
@@ -91,8 +106,8 @@ class MatrixCore:
         extra_headers: dict[str, Any] | None = None,
         *,
         timeout: httpx.Timeout | float | int | None = None,
-        model: T[Type[BaseModel]] | None,
-    ) -> T:
+        model: T_MODEL_TYPE | None,
+    ) -> T_MODEL_TYPE_COVAR:
         """
         Attempts to make a GET request with the given parameters.
 
@@ -110,7 +125,7 @@ class MatrixCore:
             kwargs["headers"] = extra_headers
         if timeout is not None:
             kwargs["timeout"] = timeout
-        response = await self.http.get(uri, **kwargs)
+        response = await self.client.get(uri, **kwargs)
         if response.status_code not in range(200, 300):
             raise MatrixHTTPException.from_response(response)
 
@@ -130,8 +145,8 @@ class MatrixCore:
         extra_headers: dict[str, Any] | None = None,
         *,
         timeout: httpx.Timeout | float | int | None = None,
-        model: T[Type[BaseModel]],
-    ) -> T:
+        model: T_MODEL_TYPE,
+    ) -> T_MODEL_TYPE_COVAR:
         """
         Attempts to make a POST request with the given parameters.
 
@@ -155,7 +170,50 @@ class MatrixCore:
         elif isinstance(data, (dict, list)):
             kwargs["json"] = data
 
-        response = await self.http.post(uri, **kwargs)
+        response = await self.client.post(uri, **kwargs)
+        if response.status_code not in range(200, 300):
+            raise MatrixHTTPException.from_response(response)
+
+        data = response.json()
+        try:
+            return model.model_validate(data)
+        except ValidationError:
+            raise BadResponse(data, model)
+
+    async def _put(
+        self,
+        uri: str,
+        data: dict[str, Any] | bytes | None,
+        query_params: dict[str, Any] | None = None,
+        extra_headers: dict[str, Any] | None = None,
+        *,
+        timeout: httpx.Timeout | float | int | None = None,
+        model: T_MODEL_TYPE,
+    ) -> T_MODEL_TYPE_COVAR:
+        """
+        Attempts to make a PUT request with the given parameters.
+
+        :param uri: URI to make a PUT request.
+        :param query_params: Query parameters to pass to the PUT request.
+        :param extra_headers: Extra headers to pass to the PUT request.
+        :param data: Data to pass to the PUT request.
+        :param timeout: Override timeout for this request.
+        :param model: The model to parse the response with. None to receive the raw JSON data.
+        :return: The validated model
+        """
+        kwargs = {}
+        if query_params:
+            kwargs["params"] = query_params
+        if extra_headers is not None:
+            kwargs["headers"] = extra_headers
+        if timeout is not None:
+            kwargs["timeout"] = timeout
+        if isinstance(data, bytes):
+            kwargs["body"] = data
+        elif isinstance(data, (dict, list)):
+            kwargs["json"] = data
+
+        response = await self.client.put(uri, **kwargs)
         if response.status_code not in range(200, 300):
             raise MatrixHTTPException.from_response(response)
 
@@ -174,7 +232,7 @@ class MatrixCore:
 
     async def close(self) -> None:
         """Shuts down the client, closing any open connections, and clearing any state."""
-        await self.http.aclose()
+        await self.client.aclose()
         self.clear()
 
     async def decline_invite(self, room_id: str, reason: str = None) -> Empty:
@@ -230,6 +288,68 @@ class MatrixCore:
 
         data = {"reason": reason} if reason else {}
         return await self._post(uri, data, timeout=httpx.Timeout(None), model=JoinResponse)
+
+    @overload
+    async def get_room_state(self, room_id: str) -> list[ClientEvent | StrippedStateEvent]: ...
+
+    @overload
+    async def get_room_state(self, room_id: str, event_type: str = None, state_key: str = None) -> dict[str, Any]: ...
+
+    async def get_room_state(
+            self,
+            room_id: str,
+            event_type: str = None,
+            state_key: str = None
+    ) -> list[ClientEvent | StrippedStateEvent] | dict[str, Any]:
+        """
+        Fetches all/a specific current state event(s) for a given room.
+
+        :param room_id: The room ID to fetch state for.
+        :param event_type: The specific event type to fetch. If not provided, fetches all state.
+        :param state_key: The specific state key to fetch. If not provided, fetches all state.
+        :return: A list of state events.
+        :raises ValueError: You did not pass a room ID
+        :raises NotAuthorised: You did not authenticate.
+        :raises BadRequest: The request was malformed.
+        :raises NotFound: The room was not found.
+        """
+        if not room_id.startswith("!"):
+            raise ValueError("room_id must start with '!'")
+
+        if event_type is None and state_key is None:  # fetch all state
+            data = await self._get(self.construct_uri("client", "v3", "rooms", room_id, "state", safe="!:"), model=None)
+            parsed = []
+            for event in data:
+                try:
+                    e = ClientEvent.model_validate(event)
+                    parsed.append(e)
+                except ValidationError:
+                    try:
+                        e = StrippedStateEvent.model_validate(event)
+                        parsed.append(e)
+                    except ValidationError:
+                        logging.warning("Failed to validate state event: %r", event)
+            return parsed
+        elif event_type and state_key is None:
+            raise ValueError("You must provide a state_key if you provide an event_type")
+        elif event_type is None and state_key:
+            raise ValueError("You must provide an event_type if you provide a state_key")
+        else:
+            return await self._get(
+                self.construct_uri("client", "v3", "rooms", room_id, "state", event_type, state_key, safe="!:"),
+                model=None,
+            )
+
+    async def get_profile(self, user_id: str) -> UserProfile:
+        """
+        Fetches the profile for this user.
+
+        :param user_id: The user ID to fetch the profile for.
+        :return: The user's profile.
+        :raises Forbidden: The user's homeserver will not disclose if they exist
+        :raises NotFound: The user does not exist.
+        """
+        return await self._get(self.construct_uri("client", "v3", "profile", user_id), model=UserProfile)
 
     async def leave_room(self, room_id: str, reason: str = None) -> Empty:
         """
@@ -344,6 +464,21 @@ class MatrixCore:
         data = {"reason": reason} if reason else {}
         return await self._post(uri, data, model=EventSendResponse)
 
+    async def resolve_room_alias(self, room_alias: str) -> ResolveRoomAliasResponse:
+        """
+        Resolves a room alias to a room ID.
+
+        :param room_alias: The room alias to resolve.
+        :return: The room ID.
+        :raises BadRequest: The given roomAlias is not a valid room alias.
+        :raises NotFound: The given room alias does not exist.
+        """
+        if not room_alias.startswith("#"):
+            raise ValueError("room_alias must start with '#'")
+        return await self._get(
+            self.construct_uri("client", "v3", "directory", "room", room_alias), model=ResolveRoomAliasResponse
+        )
+
     async def send_event(self, room_id: str, event_type: str, body: BaseModel, txn_id: str = None) -> EventSendResponse:
         """
         Sends a single event in the given room.
@@ -365,7 +500,7 @@ class MatrixCore:
 
         uri = self.construct_uri("client", "v3", "rooms", room_id, "send", event_type, txn_id)
         data = body.model_dump(exclude_unset=True)
-        return await self._post(uri, data, model=EventSendResponse)
+        return await self._put(uri, data, model=EventSendResponse)
 
     async def whoami(self) -> WhoAmI:
         """
@@ -382,3 +517,12 @@ class MatrixCore:
         if response.device_id:
             self.device_id = response.device_id
         return response
+
+
+class MatrixCore:
+    """
+    Next generation matrix client library
+    """
+
+    def __init__(self, homeserver_base_url: str):
+        self.http = MatrixCoreHTTPClient(homeserver_base_url)

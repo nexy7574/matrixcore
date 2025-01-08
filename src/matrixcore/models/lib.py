@@ -11,14 +11,43 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
-from pydantic import BaseModel, Field
+import typing
+import zoneinfo
 
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-__all__ = ["Empty", "EventSendResponse", "JoinResponse", "LoginFlows", "LoginResponse", "WhoAmI"]
+if typing.TYPE_CHECKING:
+    from ..media import MXCUri
+
+__all__ = [
+    "Empty",
+    "Any",
+    "EventSendResponse",
+    "JoinResponse",
+    "LoginFlows",
+    "LoginResponse",
+    "WhoAmI",
+    "RoomPredecessor",
+    "ResolveRoomAliasResponse",
+    "UserProfile",
+]
 
 
 class Empty(BaseModel):
     """Represents an empty response body."""
+
+
+class Any(BaseModel):
+    """Represents a response body with no pre-defined content"""
+
+    model_config = ConfigDict(extra="allow")
+
+
+class RoomPredecessor(BaseModel):
+    room_id: str
+    """The previous room's room ID"""
+    event_id: str
+    """The previous room's last known event ID. Usually the m.room.tombstone event."""
 
 
 class JoinResponse(BaseModel):
@@ -105,3 +134,38 @@ class WhoAmI(BaseModel):
     """When true, the user is a Guest User. When not present or false, the user is presumed to be a non-guest user."""
     user_id: str
     """The user ID that owns the access token."""
+
+
+class ResolveRoomAliasResponse(BaseModel):
+    """The result of resolving a room alias"""
+
+    room_id: str
+    """The room ID that corresponds to the alias"""
+    servers: list[str]
+    """The servers that are aware of the room ID"""
+
+
+class UserProfile(Any):
+    """
+    Represents a user's profile.
+
+    Note: This function supports MSC4133 and MSC4175. Profile keys not explicitly defined here are still stored
+    in the dataclass.
+    """
+
+    model_config = ConfigDict(extra="allow")
+    avatar_url: typing.Optional["MXCUri"] = None
+    """The user's avatar URL"""
+    displayname: str | None = None
+    """The user's display name"""
+
+    unstable_msc4175_timezone: zoneinfo.ZoneInfo | None = None
+
+    @classmethod
+    @field_validator("unstable_msc4175_timezone", mode="before")
+    def is_valid_timezone(cls, value: Any) -> zoneinfo.ZoneInfo:
+        """Validates that the given value is a timezone that exists"""
+        try:
+            return zoneinfo.ZoneInfo(str(value))
+        except (ModuleNotFoundError, zoneinfo.ZoneInfoNotFoundError):
+            raise ValueError(f"Invalid timezone: {value}")

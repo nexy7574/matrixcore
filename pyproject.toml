@@ -13,10 +13,11 @@ authors = [
     {name = "Nexus", email = "pip@nexy7574.co.uk"}
 ]
 dynamic = ["version"]
-
-[project.dependencies]
-"httpx[http2]" = "~=0.28"
-pydantic = "~=2.10"
+dependencies = [
+    "httpx[http2]~=0.28",
+    "pydantic~=2.10",
+    "tzdata>=2024.2"
+]
 
 #classifiers = [
 #    "Development Status :: 5 - Production/Stable",
@@ -43,6 +44,7 @@ Tracker = "https://github.com/nexy7574/matrixcore/issues"
 Funding = "https://ko-fi.com/nexy7574"
 Homepage = "https://matrixcore.dev"
 
+[project.optional-dependencies]
 dev = [
     'mkdocs',
     'mkdocs-material',
@@ -111,6 +113,3 @@ detect-same-package = true
 [tool.ruff.lint.pycodestyle]
 max-doc-length = 120
 max-line-length = 120
-
-[tool.ruff.lint.pyflakes]
-allowed-unused-imports = []
