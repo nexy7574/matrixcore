@@ -15,6 +15,7 @@ import typing
 import zoneinfo
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
 from ..media import MXCUri
 
 __all__ = [
@@ -31,7 +32,7 @@ __all__ = [
     "Filter",
     "RoomFilter",
     "RoomEventFilter",
-    "EventFilter"
+    "EventFilter",
 ]
 
 

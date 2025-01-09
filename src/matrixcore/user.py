@@ -14,7 +14,7 @@ class User:
 
     def __init__(self, user_id: str, *, client: "MatrixCore"):
         self._client = client
-        self.user_id = user_id
+        self.id = user_id
         """The user's fully qualified user ID"""
 
         self.global_display_name: MXCUri | None = None
@@ -38,17 +38,17 @@ class User:
         """This user's localpart.
 
         I.e. @localpart:server.tld -> localpart"""
-        return self.user_id.split(":")[0][1:]
+        return self.id.split(":")[0][1:]
 
     @property
     def homeserver(self) -> str:
         """This user's homeserver.
 
         I.e. @localpart:server.tld -> server.tld"""
-        return self.user_id.split(":")[1]
+        return self.id.split(":")[1]
 
     async def fetch_profile(self):
         """Fetches the user's profile."""
-        profile = await self._client.http.get_profile(self.user_id)
+        profile = await self._client.http.get_profile(self.id)
         self.global_display_name = profile.get("displayname")
         self.global_avatar_url = profile.get("avatar_url")

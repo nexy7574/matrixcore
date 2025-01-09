@@ -20,9 +20,10 @@ from ipaddress import ip_address
 
 from pydantic import BaseModel, ValidationError
 
-from . import RoomSummary
+from .errors import NotAuthorised
 from .models import (
     ClientEventWithoutRoomID,
+    Empty,
     EventSendResponse,
     MRoomAvatar,
     MRoomCanonicalAlias,
@@ -35,7 +36,9 @@ from .models import (
     MRoomName,
     MRoomPowerLevels,
     MRoomTopic,
+    RoomSummary,
 )
+from .user import User
 
 if typing.TYPE_CHECKING:
     from .core import MatrixCore
@@ -151,6 +154,68 @@ class ServerACLs(BaseModel):
         return False
 
 
+class Member(User):
+    def __init__(self, user_id: str, *, membership: MRoomMember, room: "Room", client: "MatrixCore"):
+        super().__init__(user_id, client=client)
+        self.membership = membership
+        self.room = room
+
+        self.avatar_url = self.membership.avatar_url or self.global_avatar_url
+
+    @property
+    def display_name(self) -> str | None:
+        """
+        Returns the member's chosen display name, which may be null.
+
+        disambiguated_name should be preferred over this when displaying the member's name.
+        """
+        return self.membership.displayname
+
+    @property
+    def disambiguated_name(self) -> str:
+        """
+        Calculates the disambiguated name for this member.
+
+        This should be preferred over display_name when displaying the member's name.
+        """
+        if not self.membership.displayname:
+            return self.id  # No DN, use user ID
+
+        for member in self.room.members.values():
+            if member.id == self.id:
+                continue
+            if member.membership in ["join", "invite"] and member.display_name == self.display_name:
+                # Conflicting DNs, disambiguate
+                return f"{self.display_name} ({self.id})"
+        return self.display_name  # No conflicts
+
+    async def invite(self, reason: str = None) -> None:
+        """
+        Invites this member to the current room.
+
+        This function is a no-op if the current membership is not `leave`.
+
+        :param reason: The reason for inviting the user. If None, is omitted.
+        """
+        await self.room.invite(self.id, reason)
+
+    async def kick(self, reason: str = None) -> None:
+        """
+        Kicks this member from the current room.
+
+        :param reason: The reason for kicking the user. If None, is omitted.
+        """
+        await self.room.kick(self.id, reason)
+
+    async def ban(self, reason: str = None) -> None:
+        """
+        Bans this member from the current room.
+
+        :param reason: The reason for banning the user. If None, is omitted.
+        """
+        await self.room.ban(self.id, reason)
+
+
 class Room:
     """
     Represents a room in Matrix.
@@ -200,7 +265,7 @@ class Room:
         self.summary: RoomSummary | None = None
         """The room's summary, if available."""
         # Here we use the parsed event body as it has some utility functions. Normally we'd wrap it.
-        self.members: dict[str, MRoomMember] = {}
+        self.members: dict[str, Member] = {}
         """
         All of the members in the room.
         """
@@ -247,7 +312,7 @@ class Room:
         chosen_members = []
         for user_id, member in self.members.items():
             if member.membership == "join" and user_id != self._client.http.user_id:
-                chosen_members.append(member.displayname or user_id)
+                chosen_members.append(member.disambiguated_name or user_id)
 
         if not chosen_members:
             return "Empty room"
@@ -314,6 +379,16 @@ class Room:
         """
         await self._client.http.leave_room(self.id, reason)
 
+    async def get_state(self, event_type: str, state_key: str = "") -> ClientEvent | StrippedStateEvent | None:
+        """
+        Get a specific state event for this room.
+
+        :param event_type: The event type to get.
+        :param state_key: The state key to get.
+        :return: The state event.
+        """
+        return self.raw_state.get((event_type, state_key))
+
     @typing.overload
     async def fetch_state(self) -> list[ClientEvent | StrippedStateEvent]:
         """
@@ -373,8 +448,8 @@ class Room:
                     self.topic = content.topic
                 case "m.room.encryption":
                     MRoomEncryption.model_validate(event.content)
-                    # There's nothing useful here, if this event exists, the room is encrypted. However, we should reject
-                    # the event if it does not pass validation. In this case, an error will be raised.
+                    # There's nothing useful here, if this event exists, the room is encrypted. However,
+                    # we should reject the event if it does not pass validation. In this case, an error will be raised.
                     self.encrypted = True
                 case "m.room.avatar":
                     content = MRoomAvatar.model_validate(event.content)
@@ -404,9 +479,7 @@ class Room:
                 case _:
                     log.debug("Unrecognised state event while processing %s: %r", self.id, event)
         except ValidationError as e:
-            log.warning(
-                "Ignoring invalid state event for room %r: %r", self.id, event, exc_info=e
-            )
+            log.warning("Ignoring invalid state event for room %r: %r", self.id, event, exc_info=e)
         else:
             key = (event.type, event.state_key)
             self.raw_state[key] = event
@@ -419,5 +492,78 @@ class Room:
         :param event_type: The event type to send.
         :param event: The event to send.
         :return: The response from the server.
+        :raises NotAuthorised: If the user does not have permission to send the event type.
         """
+        if not self.override_local_power_level_checks and self.power_levels:
+            if not self.power_levels.user_can_send_event(self._client.http.user_id, event_type):
+                raise NotAuthorised(
+                    None, errcode="M_FORBIDDEN", error="You do not have permission to send this event type."
+                )
         return await self._client.http.send_event(self.id, event_type, event)
+
+    async def redact(self, event_id: str, reason: str = None) -> EventSendResponse:
+        """
+        Redacts an event in the room.
+
+        :param event_id: The event ID to redact.
+        :param reason: The reason for redacting the event, if applicable.
+        :return: The response from the server.
+        """
+        if not self.override_local_power_level_checks and self.power_levels:
+            if not self.power_levels.user_can_redact_event(self._client.http.user_id, event_id):
+                raise NotAuthorised(
+                    None, errcode="M_FORBIDDEN", error="You do not have permission to redact this event."
+                )
+        return await self._client.http.redact_event(self.id, event_id, reason)
+
+    async def invite(self, user_id: str, reason: str = None) -> Empty:
+        """
+        Invites the given user ID to a room.
+
+        This is a no-op if the user's membership is not `leave`.
+
+        :param user_id: The user ID to invite.
+        :param reason: The reason for inviting the user.
+        :return: An empty response.
+        """
+        if user_id in self.members:
+            if self.members[user_id].membership not in ["leave", "knock"]:
+                return Empty()
+        return await self._client.http.invite_user(self.id, user_id, reason)
+
+    async def kick(self, user_id: str, reason: str = None) -> Empty:
+        """
+        Kicks the given user ID from a room.
+
+        :param user_id: The user ID to kick.
+        :param reason: The reason for kicking the user.
+        :return: An empty response.
+        """
+        if user_id in self.members and self.members[user_id].membership.membership not in ["join", "knock"]:
+            return Empty()
+        return await self._client.http.kick_user(self.id, user_id, reason)
+
+    async def ban(self, user_id: str, reason: str = None) -> Empty:
+        """
+        Bans the given user ID from a room.
+
+        :param user_id: The user ID to ban.
+        :param reason: The reason for banning the user.
+        :return: An empty response.
+        """
+        # You can always ban a user, unless they're already banned.
+        if user_id in self.members and self.members[user_id].membership.membership == "ban":
+            return Empty()
+        return await self._client.http.ban_user(self.id, user_id, reason)
+
+    async def unban(self, user_id: str, reason: str = None) -> Empty:
+        """
+        Unbans the given user ID from a room.
+
+        :param user_id: The user ID to unban.
+        :param reason: The reason for unbanning the user.
+        :return: An empty response.
+        """
+        if user_id in self.members and self.members[user_id].membership.membership != "ban":
+            return Empty()
+        return await self._client.http.unban_user(self.id, user_id, reason)

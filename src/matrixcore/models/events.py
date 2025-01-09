@@ -269,8 +269,10 @@ class MRoomRedaction(BaseModel):
 
 class MRoomMember(BaseModel):
     """Represents the body of an m.room.member event"""
+
     class ThirdPartyInvite(BaseModel):
         display_name: str
+
         class Signed(BaseModel):
             mxid: str
             signatures: dict[str, dict[str, str]]

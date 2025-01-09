@@ -12,9 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import asyncio
+import collections
 import json
 import logging
 import sys
+import typing
 import uuid
 from importlib.metadata import version as package_version
 from typing import Any, Literal, Self, Type, TypeVar, overload
@@ -29,18 +31,19 @@ from .models import (
     ClientEvent,
     Empty,
     EventSendResponse,
+    Filter,
     InvitedRoom,
     JoinResponse,
     KnockedRoom,
     LeftRoom,
     LoginFlows,
     LoginResponse,
+    MRoomPowerLevels,
     ResolveRoomAliasResponse,
     StrippedStateEvent,
     SyncResponse,
     UserProfile,
     WhoAmI,
-    Filter
 )
 from .models.lib import FilterResponse
 from .room import Room
@@ -569,9 +572,169 @@ class MatrixCoreHTTPClient:
         response = await self._post(
             self.construct_uri("client", "v3", "user", self.user_id, "filter"),
             data=content.model_dump(exclude_unset=True, exclude_none=True),
-            model=FilterResponse
+            model=FilterResponse,
         )
         return response
+
+    async def invite_user(self, room_id: str, user_id: str, reason: str = None) -> Empty:
+        """
+        Invites a user to a room.
+
+        :param room_id: The room ID to invite the user to.
+        :param user_id: The user ID to invite.
+        :param reason: The reason for inviting the user.
+        :return: Empty - the request was successful.
+        """
+        payload = {"user_id": user_id}
+        if reason:
+            payload["reason"] = reason
+        return await self._post(
+            self.construct_uri("client", "v3", "rooms", room_id, "invite"), data=payload, model=Empty
+        )
+
+    async def kick_user(self, room_id: str, user_id: str, reason: str = None) -> Empty:
+        """
+        Kicks a user from a room.
+
+        :param room_id: The room ID to kick the user from.
+        :param user_id: The user ID to kick.
+        :param reason: The reason for kicking the user.
+        :return: Empty - the request was successful.
+        """
+        payload = {"user_id": user_id}
+        if reason:
+            payload["reason"] = reason
+        return await self._post(self.construct_uri("client", "v3", "rooms", room_id, "kick"), data=payload, model=Empty)
+
+    async def ban_user(self, room_id: str, user_id: str, reason: str = None) -> Empty:
+        """
+        Bans a user from a room.
+
+        :param room_id: The room ID to ban the user from.
+        :param user_id: The user ID to ban.
+        :param reason: The reason for banning the user.
+        :return: Empty - the request was successful.
+        """
+        payload = {"user_id": user_id}
+        if reason:
+            payload["reason"] = reason
+        return await self._post(self.construct_uri("client", "v3", "rooms", room_id, "ban"), data=payload, model=Empty)
+
+    async def unban_user(self, room_id: str, user_id: str, reason: str = None) -> Empty:
+        """
+        Unbans a user from a room.
+
+        :param room_id: The room ID to unban the user from.
+        :param user_id: The user ID to unban.
+        :param reason: The reason for unbanning the user.
+        :return: Empty - the request was successful.
+        """
+        payload = {"user_id": user_id}
+        if reason:
+            payload["reason"] = reason
+        return await self._post(
+            self.construct_uri("client", "v3", "rooms", room_id, "unban"), data=payload, model=Empty
+        )
+
+    async def set_state(self, room_id: str, event_type: str, state_key: str, data: Any) -> EventSendResponse:
+        """
+        Sets a state event in the given room.
+
+        :param room_id: The room ID to set the state event in.
+        :param event_type: The type of event to set.
+        :param state_key: The state key to set.
+        :param data: The data to set.
+        :return: EventSendResponse - the result of setting the state event.
+        """
+        if not room_id.startswith("!"):
+            raise ValueError("room_id must start with '!'")
+        if state_key:
+            uri = self.construct_uri("client", "v3", "rooms", room_id, "state", event_type, state_key)
+        else:
+            uri = self.construct_uri("client", "v3", "rooms", room_id, "state", event_type)
+
+        return await self._put(uri, data, model=EventSendResponse)
+
+    async def create_room(
+        self,
+        *,
+        name: str | None = None,
+        topic: str | None = None,
+        invite: list[str] = None,
+        is_direct: bool = False,
+        preset: typing.Literal["public_chat", "private_chat", "trusted_private_chat"] | None = None,
+        room_alias: str | None = None,
+        room_version: str | int | None = None,
+        visibility: typing.Literal["public", "private"] | None = None,
+        power_level_content_override: MRoomPowerLevels | None = None,
+        creation_content: dict[typing.Literal["m.federate"] | str, bool | Any] | None = None,
+        initial_state: list[dict[str, Any]] | None = None,
+        unsupported_custom_room_id: str | None = None,
+    ) -> JoinResponse:
+        """
+        Creates a room with the given parameters.
+
+        Read: https://spec.matrix.org/v1.13/client-server-api/#post_matrixclientv3createroom
+
+        :param name: The name of the room. Pass `None` to omit.
+        :param topic: The topic of the room. Pass `None` to omit.
+        :param invite: A list of user IDs to invite to the room. Pass `None` to omit.
+        :param is_direct: If `True`, the room will be a direct chat. Defaults to `False`.
+        :param preset: The preset for the room. Pass `None` to omit.
+        :param room_alias: The alias for the room. Pass `None` to omit.
+        :param room_version: The version of the room. Pass `None` to omit.
+        :param visibility: The visibility of the room. Pass `None` to omit.
+        :param power_level_content_override: The power level content override. Pass `None` to omit.
+        :param creation_content: The creation content. Pass `None` to omit.
+        :param initial_state: Any extra additional state events. Pass `None` to omit.
+        :param unsupported_custom_room_id: The custom room ID. Pass `None` to omit.
+        :return: JoinResponse - the result of creating the room.
+        """
+        payload = {}
+        if creation_content is not None:
+            payload["creation_content"] = creation_content
+        if initial_state is not None:
+            payload["initial_state"] = initial_state
+        if invite is not None:
+            payload["invite"] = invite
+        payload["is_direct"] = is_direct
+        if name is not None:
+            payload["name"] = name
+        if power_level_content_override:
+            payload["power_level_content_override"] = power_level_content_override.model_dump(exclude_unset=True)
+        if room_version is not None:
+            payload["room_version"] = room_version
+        if topic is not None:
+            payload["topic"] = topic
+        if visibility is not None:
+            payload["visibility"] = visibility
+        if preset is not None:
+            payload["preset"] = preset
+        if room_alias is not None:
+            # Sanity check and make sure the user isn't passing a fully qualified room alias
+            if room_alias.startswith("#") and ":" in room_alias:
+                raise ValueError("room_alias must not be a fully qualified room alias, only the name part.")
+            elif room_alias.startswith("#"):
+                log.warning(
+                    "You probably don't want your room alias to start with #, as this would result in the final "
+                    "alias being ##youralias:yourhomeserver.com. If you want to create a room alias, pass the name. "
+                    "Got: %r",
+                    room_alias,
+                )
+            payload["room_alias_name"] = room_alias
+
+        if unsupported_custom_room_id:
+            if unsupported_custom_room_id.startswith("!"):
+                raise ValueError("unsupported_custom_room_id must not start with '!'.")
+            log.warning(
+                "The 'unsupported_custom_room_id' parameter is not officially part of the Matrix specification and"
+                " requires very specific homeserver support in order to work. Your request may not work as expected. "
+                "Got: %r",
+                unsupported_custom_room_id,
+            )
+            payload["room_id"] = unsupported_custom_room_id
+
+        return await self._post(self.construct_uri("client", "v3", "createRoom"), data=payload, model=JoinResponse)
 
 
 class MatrixCore:
@@ -579,7 +742,12 @@ class MatrixCore:
     Next generation matrix client library
     """
 
-    def __init__(self, homeserver_base_url: str):
+    def __init__(
+        self,
+        homeserver_base_url: str,
+        *,
+        event_cache_size: int = 5000,
+    ):
         self.http = MatrixCoreHTTPClient(homeserver_base_url)
         self._sync_lock = asyncio.Lock()
 
@@ -591,6 +759,7 @@ class MatrixCore:
 
         self.event_handlers: dict[str, list] = {}
         self._pending_callbacks: list[asyncio.Task[Any]] = []
+        self.event_cache = collections.deque(maxlen=event_cache_size)
 
     def _remove_room_from_register(self, room_id: str) -> str:
         x = self.invited_rooms.pop(room_id, None)
@@ -619,39 +788,28 @@ class MatrixCore:
         """
         tasks = []
         for callback in self.event_handlers.get(event, []):
-            task = asyncio.create_task(
-                callback(
-                    *data,
-                    **kdata
-                ),
-                name=f"callback_{event}_{uuid.uuid4().hex}"
-            )
+            task = asyncio.create_task(callback(*data, **kdata), name=f"callback_{event}_{uuid.uuid4().hex}")
             task.add_done_callback(lambda t: self._pending_callbacks.remove(t))
             tasks.append(task)
         self._pending_callbacks += tasks
 
     def on(self, event_name: str):
         """Registers an event listener callback for :name"""
+
         def wrapper(func):
             self.event_handlers.setdefault(event_name, [])
             if func in self.event_handlers[event_name]:
                 raise ValueError(f"{event_name} already registered {func}.")
             self.event_handlers[event_name].append(func)
             return func
+
         return wrapper
 
-    async def sync(
-            self,
-            sync_filter: Filter | str
-    ) -> SyncResponse:
+    async def sync(self, sync_filter: Filter | str) -> SyncResponse:
         """Syncs with the server"""
         if isinstance(sync_filter, Filter):
             sync_filter = (await self.http.upload_filter(sync_filter)).filter_id
-        data = await self.http.sync(
-            sync_filter,
-            timeout=None if self.next_batch is None else 48,
-            since=self.next_batch
-        )
+        data = await self.http.sync(sync_filter, timeout=None if self.next_batch is None else 48, since=self.next_batch)
         self.dispatch("sync", data)
 
         async with self._sync_lock:
@@ -691,9 +849,11 @@ class MatrixCore:
                     if joined_room.state:
                         for event in joined_room.state.events:
                             room_obj.process_state_event(event)
+                            self.event_cache.append(event)
                         self.dispatch(event.type, room_obj, event)
                     if joined_room.timeline:
                         for event in joined_room.timeline.events:
+                            self.event_cache.append(event)
                             self.dispatch(event.type, room_obj, event)
 
             if data.rooms.leave:
@@ -707,15 +867,25 @@ class MatrixCore:
 
         return data
 
+    def get_cached_event(self, event_id: str) -> ClientEvent | StrippedStateEvent | None:
+        for event in self.event_cache:
+            if event.event_id == event_id:
+                return event
+        return None
+
     async def password_login(
-            self,
-            user_id: str,
-            password: str,
-            device_id: str = None,
+        self,
+        user_id: str,
+        password: str,
+        device_id: str = None,
     ) -> LoginResponse:
-        response = await self.http.login(
+        res = await self.http.login(
             "m.login.password",
             device_id=device_id,
-            identifier={"type": "m.id.user", "user": self.http.user_id},
-            password=password
+            identifier={"type": "m.id.user", "user": user_id},
+            password=password,
         )
+        self.http.access_token = res.access_token
+        self.http.user_id = res.user_id
+        self.http.device_id = res.device_id
+        return res
