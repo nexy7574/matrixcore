@@ -90,6 +90,9 @@ class ClientEventWithoutRoomID(BaseModel):
     unsigned: UnsignedData = None
     """Contains optional extra information about the event."""
 
+    def __hash__(self):
+        return hash((self.event_id, self.type, self.state_key or ''))
+
 
 class ClientEvent(ClientEventWithoutRoomID):
     """
@@ -99,6 +102,9 @@ class ClientEvent(ClientEventWithoutRoomID):
 
     room_id: str
     """The ID of the room associated with this event."""
+
+    def __hash__(self):
+        return hash((self.event_id, self.type, self.state_key or '', self.room_id))
 
 
 class StrippedStateEvent(BaseModel):
@@ -130,6 +136,9 @@ class StrippedStateEvent(BaseModel):
     """
     type: str
     """The type of the event."""
+
+    def __hash__(self):
+        return hash((self.type, self.state_key))
 
 
 class MRoomCreate(BaseModel):
