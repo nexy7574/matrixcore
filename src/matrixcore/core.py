@@ -530,7 +530,7 @@ class MatrixCoreHTTPClient:
 
     async def sync(
         self,
-        filter: str | dict = None,
+        sync_filter: str | dict = None,
         full_state: bool = False,
         set_presence: str | None = None,
         since: str | None = None,
@@ -542,10 +542,10 @@ class MatrixCoreHTTPClient:
         if not self.user_id:
             await self.whoami()
         query_params = {}
-        if filter:
-            if isinstance(filter, dict):
-                filter = json.dumps(filter, separators=(",", ":"))
-            query_params["filter"] = filter
+        if sync_filter:
+            if isinstance(sync_filter, dict):
+                sync_filter = json.dumps(sync_filter, separators=(",", ":"))
+            query_params["filter"] = sync_filter
         if full_state is not None:
             query_params["full_state"] = json.dumps(full_state)
         if set_presence:
@@ -805,6 +805,59 @@ class MatrixCore:
 
         return wrapper
 
+    def process_sync(self, data: SyncResponse):
+        room_states = {}
+        if not data.rooms:
+            self.next_batch = data.next_batch
+            return data
+        if data.rooms.invite:
+            for room_id, room in data.rooms.invite.items():
+                if room_id not in self.invited_rooms:
+                    prev_state = self._remove_room_from_register(room_id)
+                    self.invited_rooms[room_id] = room
+                    room_states[room_id] = (prev_state, "invite")
+                    self.dispatch("room_invite", room)
+
+        if data.rooms.knock:
+            for room_id, room in data.rooms.knock.items():
+                if room_id not in self.knocked_rooms:
+                    prev_state = self._remove_room_from_register(room_id)
+                    self.knocked_rooms[room_id] = room
+                    room_states[room_id] = (prev_state, "knock")
+                    self.dispatch("room_knock", room)
+
+        if data.rooms.join:
+            for room_id, joined_room in data.rooms.join.items():
+                if room_id not in self.joined_rooms:
+                    prev_state = self._remove_room_from_register(room_id)
+                    room_obj = Room(room_id, client=self)
+                    if joined_room.summary:
+                        room_obj.summary = joined_room.summary
+                    room_states[room_id] = (prev_state, "join")
+                    self.joined_rooms[room_id] = room_obj
+                    self.dispatch("room_join", room_obj)
+                else:
+                    room_obj = self.joined_rooms[room_id]
+
+                if joined_room.state:
+                    for event in joined_room.state.events:
+                        room_obj.process_state_event(event)
+                        self.event_cache.append(event)
+                        self.dispatch(event.type, room_obj, event)
+                if joined_room.timeline:
+                    for event in joined_room.timeline.events:
+                        self.event_cache.append(event)
+                        self.dispatch(event.type, room_obj, event)
+
+        if data.rooms.leave:
+            for room_id, left_room in data.rooms.leave.items():
+                if room_id not in self.left_rooms:
+                    prev_state = self._remove_room_from_register(room_id)
+                    self.left_rooms[room_id] = left_room
+                    room_states[room_id] = (prev_state, "leave")
+                    self.dispatch("room_leave", left_room)
+        self.next_batch = data.next_batch
+
     async def sync(self, sync_filter: Filter | str) -> SyncResponse:
         """Syncs with the server"""
         if isinstance(sync_filter, Filter):
@@ -813,57 +866,7 @@ class MatrixCore:
         self.dispatch("sync", data)
 
         async with self._sync_lock:
-            room_states = {}
-            if not data.rooms:
-                self.next_batch = data.next_batch
-                return data
-            if data.rooms.invite:
-                for room_id, room in data.rooms.invite.items():
-                    if room_id not in self.invited_rooms:
-                        prev_state = self._remove_room_from_register(room_id)
-                        self.invited_rooms[room_id] = room
-                        room_states[room_id] = (prev_state, "invite")
-                        self.dispatch("room_invite", room)
-
-            if data.rooms.knock:
-                for room_id, room in data.rooms.knock.items():
-                    if room_id not in self.knocked_rooms:
-                        prev_state = self._remove_room_from_register(room_id)
-                        self.knocked_rooms[room_id] = room
-                        room_states[room_id] = (prev_state, "knock")
-                        self.dispatch("room_knock", room)
-
-            if data.rooms.join:
-                for room_id, joined_room in data.rooms.join.items():
-                    if room_id not in self.joined_rooms:
-                        prev_state = self._remove_room_from_register(room_id)
-                        room_obj = Room(room_id, client=self)
-                        if joined_room.summary:
-                            room_obj.summary = joined_room.summary
-                        room_states[room_id] = (prev_state, "join")
-                        self.joined_rooms[room_id] = room_obj
-                        self.dispatch("room_join", room_obj)
-                    else:
-                        room_obj = self.joined_rooms[room_id]
-
-                    if joined_room.state:
-                        for event in joined_room.state.events:
-                            room_obj.process_state_event(event)
-                            self.event_cache.append(event)
-                        self.dispatch(event.type, room_obj, event)
-                    if joined_room.timeline:
-                        for event in joined_room.timeline.events:
-                            self.event_cache.append(event)
-                            self.dispatch(event.type, room_obj, event)
-
-            if data.rooms.leave:
-                for room_id, left_room in data.rooms.leave.items():
-                    if room_id not in self.left_rooms:
-                        prev_state = self._remove_room_from_register(room_id)
-                        self.left_rooms[room_id] = left_room
-                        room_states[room_id] = (prev_state, "leave")
-                        self.dispatch("room_leave", left_room)
-            self.next_batch = data.next_batch
+            self.process_sync(data)
 
         return data
 
