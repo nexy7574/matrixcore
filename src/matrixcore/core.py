@@ -89,13 +89,16 @@ class MatrixCoreHTTPClient:
         """The current access token, if any"""
         header = self.client.headers.get("Authorization", "")
         try:
-            return header.split()[1]
+            return header.split()[1] or None
         except ValueError:
             return
 
     @access_token.setter
     def access_token(self, access_token: str) -> None:
-        self.client.headers["Authorization"] = f"Bearer {access_token}"
+        if not access_token:
+            self.client.headers.pop("Authorization", None)
+        else:
+            self.client.headers["Authorization"] = f"Bearer {access_token}"
 
     @staticmethod
     def construct_uri(*parts: str | int, no_escape: bool = False, safe: str = None) -> str:
