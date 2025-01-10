@@ -65,6 +65,8 @@ class ClientEventWithoutRoomID(BaseModel):
         """The event that redacted this one, if any."""
         transaction_id: str = None
         """The client-supplied transaction ID, if the client being given the event is the same one which sent it."""
+        replaces_state: str = None
+        """The event ID of the previous state of this state event."""
 
     content: dict[str, typing.Any]
     """The body of this event, as created by the client which sent it."""
