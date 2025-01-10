@@ -136,7 +136,7 @@ class InvitedRoom(BaseModel):
     class InviteState(BaseModel):
         events: list[StrippedStateEvent] = None
 
-    invite_state: InviteState = None
+    invite_state: InviteState
 
 
 class JoinedRoom(BaseModel):
@@ -157,7 +157,7 @@ class KnockedRoom(BaseModel):
     class KnockState(BaseModel):
         events: list[StrippedStateEvent] = None
 
-    knock_state: KnockState = None
+    knock_state: KnockState
 
 
 class LeftRoom(BaseModel):
@@ -169,13 +169,17 @@ class LeftRoom(BaseModel):
 
 
 class Rooms(BaseModel):
-    invite: dict[str, InvitedRoom] = None
+    # noinspection PyDataclass
+    invite: dict[str, InvitedRoom] = Field(default_factory=dict)
     """Rooms that the user has been invited to"""
-    join: dict[str, JoinedRoom] = None
+    # noinspection PyDataclass
+    join: dict[str, JoinedRoom] = Field(default_factory=dict)
     """Rooms that the user has joined and is currently in"""
-    knock: dict[str, KnockedRoom] = None
+    # noinspection PyDataclass
+    knock: dict[str, KnockedRoom] = Field(default_factory=dict)
     """Rooms that the user is now knocking to join"""
-    leave: dict[str, LeftRoom] = None
+    # noinspection PyDataclass
+    leave: dict[str, LeftRoom] = Field(default_factory=dict)
     """Rooms that the user has left and is no longer a member of"""
 
 
@@ -192,7 +196,7 @@ class SyncResponse(BaseModel):
     """The batch token to supply in the since param of the next /sync request."""
     presence: Presence = None
     """The updates to the presence status of other users."""
-    rooms: Rooms = None
+    rooms: Rooms = Field(default_factory=Rooms)
     """Updates to rooms."""
     to_device: ToDevice = None
     """Information on the send-to-device messages for the client device, as defined in Send-to-Device messaging."""
