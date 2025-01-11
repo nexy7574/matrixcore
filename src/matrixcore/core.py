@@ -75,6 +75,7 @@ class MatrixCoreHTTPClient:
             headers={"User-Agent": self.USER_AGENT},
             base_url=homeserver_base_url,
         )
+        self.access_token: str | None = None
         self.user_id: str | None = None
         self.device_id: str | None = None
 
@@ -85,20 +86,13 @@ class MatrixCoreHTTPClient:
         await self.close()
 
     @property
-    def access_token(self) -> str | None:
-        """The current access token, if any"""
-        header = self.client.headers.get("Authorization", "")
-        try:
-            return header.split()[1] or None
-        except ValueError:
-            return
-
-    @access_token.setter
-    def access_token(self, access_token: str) -> None:
-        if not access_token:
-            self.client.headers.pop("Authorization", None)
-        else:
-            self.client.headers["Authorization"] = f"Bearer {access_token}"
+    def request_headers(self) -> dict[str, str]:
+        h = {
+            "User-Agent": self.USER_AGENT,
+        }
+        if self.access_token:
+            h["Authorization"] = f"Bearer {self.access_token}"
+        return h
 
     @staticmethod
     def construct_uri(*parts: str | int, no_escape: bool = False, safe: str = None) -> str:
@@ -137,7 +131,11 @@ class MatrixCoreHTTPClient:
         :param model: The model to parse the response with. None to receive the raw JSON data.
         :return: The validated model
         """
-        kwargs = {}
+        headers = self.request_headers
+        if extra_headers:
+            headers.update(extra_headers)
+        kwargs = {"headers": headers}
+
         if query_params:
             kwargs["params"] = query_params
         if extra_headers is not None:
@@ -175,11 +173,13 @@ class MatrixCoreHTTPClient:
         :param model: The model to parse the response with. None to receive the raw JSON data.
         :return: The validated model
         """
-        kwargs = {}
+        headers = self.request_headers
+        if extra_headers:
+            headers.update(extra_headers)
+        kwargs = {"headers": headers}
+
         if query_params:
             kwargs["params"] = query_params
-        if extra_headers is not None:
-            kwargs["headers"] = extra_headers
         if timeout is not None:
             kwargs["timeout"] = timeout
         if isinstance(data, bytes):
@@ -215,11 +215,13 @@ class MatrixCoreHTTPClient:
         :param model: The model to parse the response with. None to receive the raw JSON data.
         :return: The validated model
         """
-        kwargs = {}
+        headers = self.request_headers
+        if extra_headers:
+            headers.update(extra_headers)
+        kwargs = {"headers": headers}
+
         if query_params:
             kwargs["params"] = query_params
-        if extra_headers is not None:
-            kwargs["headers"] = extra_headers
         if timeout is not None:
             kwargs["timeout"] = timeout
         if isinstance(data, bytes):
@@ -416,7 +418,11 @@ class MatrixCoreHTTPClient:
                 raise ValueError("'type' is a required key in `identifier`")
             payload["identifier"] = identifier
 
-        return await self._post(self.construct_uri("client", "v3", "login"), data=payload, model=LoginResponse)
+        return await self._post(
+            self.construct_uri("client", "v3", "login"),
+            data=payload,
+            model=LoginResponse
+        )
 
     async def logout(self, all_devices: bool = False) -> Empty:
         """
