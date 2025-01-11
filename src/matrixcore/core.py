@@ -32,10 +32,10 @@ from .models import (
     Empty,
     EventSendResponse,
     Filter,
-    InvitedRoom,
+    SyncInvitedRoom,
     JoinResponse,
-    KnockedRoom,
-    LeftRoom,
+    SyncKnockedRoom,
+    SyncLeftRoom,
     LoginFlows,
     LoginResponse,
     MRoomPowerLevels,
@@ -763,10 +763,10 @@ class MatrixCore:
         self._sync_lock = asyncio.Lock()
 
         self.next_batch = None
-        self.invited_rooms: dict[str, InvitedRoom] = {}
-        self.knocked_rooms: dict[str, KnockedRoom] = {}
+        self.invited_rooms: dict[str, SyncInvitedRoom] = {}
+        self.knocked_rooms: dict[str, SyncKnockedRoom] = {}
         self.joined_rooms: dict[str, Room] = {}
-        self.left_rooms: dict[str, LeftRoom] = {}
+        self.left_rooms: dict[str, SyncLeftRoom] = {}
 
         self.event_handlers: dict[str, list] = {}
         self._pending_callbacks: list[asyncio.Task[Any]] = []

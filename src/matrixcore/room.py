@@ -36,7 +36,7 @@ from .models import (
     MRoomName,
     MRoomPowerLevels,
     MRoomTopic,
-    RoomSummary,
+    SyncRoomSummary,
 )
 from .user import User
 
@@ -262,7 +262,7 @@ class Room:
         """The ACLs for this room"""
         self.power_levels: MRoomPowerLevels | None = None
         """The power levels for this room"""
-        self.summary: RoomSummary | None = None
+        self.summary: SyncRoomSummary | None = None
         """The room's summary, if available."""
         # Here we use the parsed event body as it has some utility functions. Normally we'd wrap it.
         self.members: dict[str, Member] = {}

@@ -5,20 +5,20 @@ from .lib import CustomBaseModel
 
 __all__ = (
     "GenericEvent",
-    "AccountData",
-    "Presence",
-    "Ephemeral",
-    "State",
-    "RoomSummary",
-    "NotificationCounts",
-    "Timeline",
-    "ToDevice",
-    "DeviceLists",
-    "InvitedRoom",
-    "KnockedRoom",
-    "JoinedRoom",
-    "LeftRoom",
-    "Rooms",
+    "SyncAccountData",
+    "SyncPresenceData",
+    "SyncEphemeralData",
+    "SyncRoomStateData",
+    "SyncRoomSummary",
+    "SyncRoomNotificationCounts",
+    "SyncRoomTimeline",
+    "SyncToDeviceData",
+    "SyncDeviceListsData",
+    "SyncInvitedRoom",
+    "SyncKnockedRoom",
+    "SyncJoinedRoom",
+    "SyncLeftRoom",
+    "SyncResponseRooms",
     "SyncResponse",
 )
 
@@ -28,19 +28,19 @@ class GenericEvent(CustomBaseModel):
     type: str
 
 
-class AccountData(CustomBaseModel):
+class SyncAccountData(CustomBaseModel):
     """The private data created by this user."""
 
     events: list[GenericEvent] = None
 
 
-class Presence(CustomBaseModel):
+class SyncPresenceData(CustomBaseModel):
     """The updates to the presence status of other users."""
 
     events: list[GenericEvent] = None
 
 
-class Ephemeral(CustomBaseModel):
+class SyncEphemeralData(CustomBaseModel):
     """
     The new ephemeral events in the room (events that aren’t recorded in the timeline or state of the room).
     In this version of the spec, these are typing notification and read receipt events.
@@ -49,13 +49,13 @@ class Ephemeral(CustomBaseModel):
     events: list[GenericEvent] = None
 
 
-class State(CustomBaseModel):
+class SyncRoomStateData(CustomBaseModel):
     """represents the state of a room"""
 
     events: list[ClientEventWithoutRoomID]
 
 
-class RoomSummary(CustomBaseModel):
+class SyncRoomSummary(CustomBaseModel):
     """
     Represents a room summary
     """
@@ -86,14 +86,14 @@ class RoomSummary(CustomBaseModel):
     """
 
 
-class NotificationCounts(CustomBaseModel):
+class SyncRoomNotificationCounts(CustomBaseModel):
     highlight_count: int = None
     """The number of unread notifications for this room with the highlight flag set."""
     notification_count: int = None
     """The total number of unread notifications for this room."""
 
 
-class Timeline(CustomBaseModel):
+class SyncRoomTimeline(CustomBaseModel):
     limit: bool = False
     prev_batch: str = None
     """
@@ -105,7 +105,7 @@ class Timeline(CustomBaseModel):
     """List of events"""
 
 
-class ToDevice(CustomBaseModel):
+class SyncToDeviceData(CustomBaseModel):
     """Information on the send-to-device messages for the client device."""
 
     class ToDeviceEvent(CustomBaseModel):
@@ -119,7 +119,7 @@ class ToDevice(CustomBaseModel):
     events: list[ToDeviceEvent] = None
 
 
-class DeviceLists(CustomBaseModel):
+class SyncDeviceListsData(CustomBaseModel):
     changed: list[str] = None
     """
     List of users who have updated their device identity or cross-signing keys,
@@ -131,7 +131,7 @@ class DeviceLists(CustomBaseModel):
     """
 
 
-class InvitedRoom(CustomBaseModel):
+class SyncInvitedRoom(CustomBaseModel):
     """Represents a room the user has been invited to, but not yet joined"""
 
     class InviteState(CustomBaseModel):
@@ -140,19 +140,19 @@ class InvitedRoom(CustomBaseModel):
     invite_state: InviteState
 
 
-class JoinedRoom(CustomBaseModel):
+class SyncJoinedRoom(CustomBaseModel):
     """Represents a room the user has joined and is currently in"""
 
-    account_data: AccountData = None
-    state: State = None
-    ephemeral: Ephemeral = None
-    summary: RoomSummary = None
-    timeline: Timeline = None
-    unread_notifications: NotificationCounts = None
-    unread_threads_notifications: NotificationCounts = None
+    account_data: SyncAccountData = None
+    state: SyncRoomStateData = None
+    ephemeral: SyncEphemeralData = None
+    summary: SyncRoomSummary = None
+    timeline: SyncRoomTimeline = None
+    unread_notifications: SyncRoomNotificationCounts = None
+    unread_threads_notifications: SyncRoomNotificationCounts = None
 
 
-class KnockedRoom(CustomBaseModel):
+class SyncKnockedRoom(CustomBaseModel):
     """Represents a room the user is now knocking to join"""
 
     class KnockState(CustomBaseModel):
@@ -161,43 +161,43 @@ class KnockedRoom(CustomBaseModel):
     knock_state: KnockState
 
 
-class LeftRoom(CustomBaseModel):
+class SyncLeftRoom(CustomBaseModel):
     """Represents a room the user has left and is no longer a member of"""
 
-    account_data: AccountData = None
-    state: State = None
-    timeline: Timeline = None
+    account_data: SyncAccountData = None
+    state: SyncRoomStateData = None
+    timeline: SyncRoomTimeline = None
 
 
-class Rooms(CustomBaseModel):
+class SyncResponseRooms(CustomBaseModel):
     # noinspection PyDataclass
-    invite: dict[str, InvitedRoom] = Field(default_factory=dict)
+    invite: dict[str, SyncInvitedRoom] = Field(default_factory=dict)
     """Rooms that the user has been invited to"""
     # noinspection PyDataclass
-    join: dict[str, JoinedRoom] = Field(default_factory=dict)
+    join: dict[str, SyncJoinedRoom] = Field(default_factory=dict)
     """Rooms that the user has joined and is currently in"""
     # noinspection PyDataclass
-    knock: dict[str, KnockedRoom] = Field(default_factory=dict)
+    knock: dict[str, SyncKnockedRoom] = Field(default_factory=dict)
     """Rooms that the user is now knocking to join"""
     # noinspection PyDataclass
-    leave: dict[str, LeftRoom] = Field(default_factory=dict)
+    leave: dict[str, SyncLeftRoom] = Field(default_factory=dict)
     """Rooms that the user has left and is no longer a member of"""
 
 
 class SyncResponse(CustomBaseModel):
     """Response of /sync"""
 
-    account_data: AccountData = None
+    account_data: SyncAccountData = None
     """The global private data created by this user."""
-    device_lists: DeviceLists = None
+    device_lists: SyncDeviceListsData = None
     """Information on end-to-end device updates, as specified in End-to-end encryption."""
     device_one_time_keys_count: dict[str, int] = None
     """Information on end-to-end encryption keys, as specified in End-to-end encryption."""
     next_batch: str
     """The batch token to supply in the since param of the next /sync request."""
-    presence: Presence = None
+    presence: SyncPresenceData = None
     """The updates to the presence status of other users."""
-    rooms: Rooms = Field(default_factory=Rooms)
+    rooms: SyncResponseRooms = Field(default_factory=SyncResponseRooms)
     """Updates to rooms."""
-    to_device: ToDevice = None
+    to_device: SyncToDeviceData = None
     """Information on the send-to-device messages for the client device, as defined in Send-to-Device messaging."""
