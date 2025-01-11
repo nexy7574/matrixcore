@@ -193,7 +193,6 @@ class MatrixCoreHTTPClient:
             raise MatrixHTTPException.from_response(response)
 
         data = response.json()
-        log.debug("Validating %r: %r", model, data)
         return model.model_validate(data)
 
     async def _put(
@@ -829,7 +828,7 @@ class MatrixCore:
                     prev_state = self._remove_room_from_register(room_id)
                     self.invited_rooms[room_id] = room
                     room_states[room_id] = (prev_state, "invite")
-                    self.dispatch("room_invite", room)
+                    self.dispatch("room_invite", room_id, room)
 
         if data.rooms.knock:
             for room_id, room in data.rooms.knock.items():
@@ -837,7 +836,7 @@ class MatrixCore:
                     prev_state = self._remove_room_from_register(room_id)
                     self.knocked_rooms[room_id] = room
                     room_states[room_id] = (prev_state, "knock")
-                    self.dispatch("room_knock", room)
+                    self.dispatch("room_knock", room_id, room)
 
         if data.rooms.join:
             for room_id, joined_room in data.rooms.join.items():
@@ -848,7 +847,7 @@ class MatrixCore:
                         room_obj.summary = joined_room.summary
                     room_states[room_id] = (prev_state, "join")
                     self.joined_rooms[room_id] = room_obj
-                    self.dispatch("room_join", room_obj)
+                    self.dispatch("room_join", room_id, room_obj)
                 else:
                     room_obj = self.joined_rooms[room_id]
 
@@ -856,11 +855,11 @@ class MatrixCore:
                     for event in joined_room.state.events:
                         room_obj.process_state_event(event)
                         self.event_cache.append(event)
-                        self.dispatch(event.type, room_obj, event)
+                        # self.dispatch(event.type, room_obj, event)
                 if joined_room.timeline:
                     for event in joined_room.timeline.events:
                         self.event_cache.append(event)
-                        self.dispatch(event.type, room_obj, event)
+                        # self.dispatch(event.type, room_obj, event)
 
         if data.rooms.leave:
             for room_id, left_room in data.rooms.leave.items():
@@ -868,7 +867,7 @@ class MatrixCore:
                     prev_state = self._remove_room_from_register(room_id)
                     self.left_rooms[room_id] = left_room
                     room_states[room_id] = (prev_state, "leave")
-                    self.dispatch("room_leave", left_room)
+                    self.dispatch("room_leave", room_id, left_room)
         self.next_batch = data.next_batch
 
     async def sync(self, sync_filter: Filter | str) -> SyncResponse:
