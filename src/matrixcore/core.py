@@ -92,7 +92,6 @@ class MatrixCoreHTTPClient:
         }
         if self.access_token:
             h["Authorization"] = f"Bearer {self.access_token}"
-        log.debug("Produced headers: %r", h)
         return h
 
     @staticmethod
