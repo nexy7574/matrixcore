@@ -123,17 +123,14 @@ class StrippedStateEvent(BaseModel):
     See: https://spec.matrix.org/v1.13/client-server-api/#stripped-state
     """
 
-    content: dict[
-        str,
-        typing.Union[
-            "MRoomCreate",
-            "MRoomName",
-            "MRoomAvatar",
-            "MRoomTopic",
-            "MRoomJoinRules",
-            "MRoomCanonicalAlias",
-            "MRoomEncryption",
-        ],
+    content: typing.Union[
+        "MRoomCreate",
+        "MRoomName",
+        "MRoomAvatar",
+        "MRoomTopic",
+        "MRoomJoinRules",
+        "MRoomCanonicalAlias",
+        "MRoomEncryption",
     ]
     """The content of the event."""
     sender: str

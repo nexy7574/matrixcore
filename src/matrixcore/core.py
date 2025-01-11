@@ -193,6 +193,7 @@ class MatrixCoreHTTPClient:
             raise MatrixHTTPException.from_response(response)
 
         data = response.json()
+        log.debug("Validating %r: %r", model, data)
         return model.model_validate(data)
 
     async def _put(
