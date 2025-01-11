@@ -480,7 +480,11 @@ class Room:
                 case _:
                     log.debug("Unrecognised state event while processing %s: %r", self.id, event)
         except ValidationError as e:
-            log.warning("Ignoring invalid state event for room %r: %r", self.id, event, exc_info=e)
+            # If the body is empty and the event has redaction info, just ignore. Otherwise, scream.
+            if not event.content and event.unsigned and event.unsigned.redacted_because:
+                log.debug("Ignoring redacted state event for room %r: %r", self.id, event)
+            else:
+                log.warning("Ignoring invalid state event for room %r: %r", self.id, event, exc_info=e)
         else:
             key = (event.type, event.state_key)
             self.raw_state[key] = event
