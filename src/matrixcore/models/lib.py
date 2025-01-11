@@ -33,44 +33,70 @@ __all__ = [
     "RoomFilter",
     "RoomEventFilter",
     "EventFilter",
+    "CustomBaseModel"
 ]
 
+class CustomBaseModel(BaseModel):
+    """A custom base model that adds some utilities."""
 
-class Empty(BaseModel):
+    def flattened(self, sep: str = ".") -> dict[str, typing.Any]:
+        """
+        Flattens the event into a dictionary where the keys are the full path to the value
+
+        Example:
+            {"foo": {"bar": "baz"}} -> {"foo.bar": "baz"}
+
+        :param sep: The separator to use between keys. Defaults to period.
+        :return: The flattened dictionary.
+        """
+        def flatten(d, parent_key=''):
+            items = []
+            for k, v in d.items():
+                new_key = f"{parent_key}{sep}{k}" if parent_key else k
+                if isinstance(v, dict):
+                    items.extend(flatten(v, new_key).items())
+                else:
+                    items.append((new_key, v))
+            return dict(items)
+
+        return flatten(self.model_dump(mode="python"))
+
+
+class Empty(CustomBaseModel):
     """Represents an empty response body."""
 
 
-class Any(BaseModel):
+class Any(CustomBaseModel):
     """Represents a response body with no pre-defined content"""
 
     model_config = ConfigDict(extra="allow")
 
 
-class RoomPredecessor(BaseModel):
+class RoomPredecessor(CustomBaseModel):
     room_id: str
     """The previous room's room ID"""
     event_id: str
     """The previous room's last known event ID. Usually the m.room.tombstone event."""
 
 
-class JoinResponse(BaseModel):
+class JoinResponse(CustomBaseModel):
     """The result of joining a room"""
 
     room_id: str
     """The ID of the room that was joined"""
 
 
-class EventSendResponse(BaseModel):
+class EventSendResponse(CustomBaseModel):
     """The result of sending an event"""
 
     event_id: str
     """The ID of the event that was sent"""
 
 
-class LoginFlows(BaseModel):
+class LoginFlows(CustomBaseModel):
     """The result of fetching supported login methods"""
 
-    class LoginFlow(BaseModel):
+    class LoginFlow(CustomBaseModel):
         get_login_token: bool = None
         """
         If type is m.login.token, an optional field to indicate to the unauthenticated client that the homeserver 
@@ -85,11 +111,11 @@ class LoginFlows(BaseModel):
     """The homeserver's supported login types"""
 
 
-class LoginResponse(BaseModel):
+class LoginResponse(CustomBaseModel):
     """The result of logging in"""
 
-    class DiscoveryInformation(BaseModel):
-        class ServerInformation(BaseModel):
+    class DiscoveryInformation(CustomBaseModel):
+        class ServerInformation(CustomBaseModel):
             base_url: str
             """The base URL for this server"""
 
@@ -124,7 +150,7 @@ class LoginResponse(BaseModel):
     """Optional client configuration provided by the server."""
 
 
-class WhoAmI(BaseModel):
+class WhoAmI(CustomBaseModel):
     """
     The result of the whoami request
 
@@ -139,7 +165,7 @@ class WhoAmI(BaseModel):
     """The user ID that owns the access token."""
 
 
-class ResolveRoomAliasResponse(BaseModel):
+class ResolveRoomAliasResponse(CustomBaseModel):
     """The result of resolving a room alias"""
 
     room_id: str
@@ -174,7 +200,7 @@ class UserProfile(Any):
             raise ValueError(f"Invalid timezone: {value}")
 
 
-class EventFilter(BaseModel):
+class EventFilter(CustomBaseModel):
     limit: int = Field(default=None, gt=0)
     not_senders: list[str] = None
     """
@@ -196,7 +222,7 @@ class EventFilter(BaseModel):
     """
 
 
-class RoomEventFilter(BaseModel):
+class RoomEventFilter(CustomBaseModel):
     contains_url: bool | None = None
     """
     If true, includes only events with a url key in their content. If false, excludes those events.
@@ -248,7 +274,7 @@ class RoomEventFilter(BaseModel):
     """If true, enables per-thread notification counts. Only applies to the /sync endpoint. Defaults to false."""
 
 
-class RoomFilter(BaseModel):
+class RoomFilter(CustomBaseModel):
     include_leave: bool = False
     """Include rooms that the user has left in the sync, default false"""
     not_rooms: list[str] = None
@@ -275,7 +301,7 @@ class RoomFilter(BaseModel):
     """The message and state update events to include for rooms."""
 
 
-class Filter(BaseModel):
+class Filter(CustomBaseModel):
     event_fields: list[str] = None
     """
     List of event fields to include. If this list is absent then all fields are included.
@@ -288,5 +314,5 @@ class Filter(BaseModel):
     room: RoomFilter = None
 
 
-class FilterResponse(BaseModel):
+class FilterResponse(CustomBaseModel):
     filter_id: str

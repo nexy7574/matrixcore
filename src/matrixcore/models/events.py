@@ -15,7 +15,7 @@ import typing
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .lib import RoomPredecessor
+from .lib import RoomPredecessor, CustomBaseModel
 
 __all__ = [
     "MRoomMessage",
@@ -40,13 +40,13 @@ __all__ = [
 from ..media import MXCUri
 
 
-class ClientEventWithoutRoomID(BaseModel):
+class ClientEventWithoutRoomID(CustomBaseModel):
     """
     The format used for events when they are returned from a homeserver to a client via the Client-Server API,
     or sent to an Application Service via the Application Services API.
     """
 
-    class UnsignedData(BaseModel):
+    class UnsignedData(CustomBaseModel):
         age: int = None
         """
         The time in milliseconds that has elapsed since the event was sent. 
@@ -68,7 +68,7 @@ class ClientEventWithoutRoomID(BaseModel):
         replaces_state: str = None
         """The event ID of the previous state of this state event."""
 
-    content: dict[str, typing.Any]
+    content: CustomBaseModel
     """The body of this event, as created by the client which sent it."""
     event_id: str
     """The globally unique identifier for this event."""

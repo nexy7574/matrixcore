@@ -54,6 +54,12 @@ class MatrixHTTPException(MatrixCoreException):
         self.extra = kwargs or {}
         self.response = response
 
+    def __repr__(self):
+        return f"<{self.__class__.__name__} errcode={self.errcode!r} error={self.error!r}>"
+
+    def __str__(self):
+        return f"{self.errcode}: {self.error}"
+
     @staticmethod
     def from_response(response: Response) -> Union["MatrixHTTPException", "RateLimited"]:
         """

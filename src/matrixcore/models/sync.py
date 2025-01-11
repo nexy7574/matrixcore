@@ -1,6 +1,7 @@
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from .events import ClientEventWithoutRoomID, StrippedStateEvent
+from .lib import CustomBaseModel
 
 __all__ = (
     "GenericEvent",
@@ -22,24 +23,24 @@ __all__ = (
 )
 
 
-class GenericEvent(BaseModel):
+class GenericEvent(CustomBaseModel):
     content: dict
     type: str
 
 
-class AccountData(BaseModel):
+class AccountData(CustomBaseModel):
     """The private data created by this user."""
 
     events: list[GenericEvent] = None
 
 
-class Presence(BaseModel):
+class Presence(CustomBaseModel):
     """The updates to the presence status of other users."""
 
     events: list[GenericEvent] = None
 
 
-class Ephemeral(BaseModel):
+class Ephemeral(CustomBaseModel):
     """
     The new ephemeral events in the room (events that aren’t recorded in the timeline or state of the room).
     In this version of the spec, these are typing notification and read receipt events.
@@ -48,13 +49,13 @@ class Ephemeral(BaseModel):
     events: list[GenericEvent] = None
 
 
-class State(BaseModel):
+class State(CustomBaseModel):
     """represents the state of a room"""
 
     events: list[ClientEventWithoutRoomID]
 
 
-class RoomSummary(BaseModel):
+class RoomSummary(CustomBaseModel):
     """
     Represents a room summary
     """
@@ -85,14 +86,14 @@ class RoomSummary(BaseModel):
     """
 
 
-class NotificationCounts(BaseModel):
+class NotificationCounts(CustomBaseModel):
     highlight_count: int = None
     """The number of unread notifications for this room with the highlight flag set."""
     notification_count: int = None
     """The total number of unread notifications for this room."""
 
 
-class Timeline(BaseModel):
+class Timeline(CustomBaseModel):
     limit: bool = False
     prev_batch: str = None
     """
@@ -104,10 +105,10 @@ class Timeline(BaseModel):
     """List of events"""
 
 
-class ToDevice(BaseModel):
+class ToDevice(CustomBaseModel):
     """Information on the send-to-device messages for the client device."""
 
-    class ToDeviceEvent(BaseModel):
+    class ToDeviceEvent(CustomBaseModel):
         content: dict
         """The content of this event. The fields in this object will vary depending on the type of event."""
         type: str
@@ -118,7 +119,7 @@ class ToDevice(BaseModel):
     events: list[ToDeviceEvent] = None
 
 
-class DeviceLists(BaseModel):
+class DeviceLists(CustomBaseModel):
     changed: list[str] = None
     """
     List of users who have updated their device identity or cross-signing keys,
@@ -130,16 +131,16 @@ class DeviceLists(BaseModel):
     """
 
 
-class InvitedRoom(BaseModel):
+class InvitedRoom(CustomBaseModel):
     """Represents a room the user has been invited to, but not yet joined"""
 
-    class InviteState(BaseModel):
+    class InviteState(CustomBaseModel):
         events: list[StrippedStateEvent] = None
 
     invite_state: InviteState
 
 
-class JoinedRoom(BaseModel):
+class JoinedRoom(CustomBaseModel):
     """Represents a room the user has joined and is currently in"""
 
     account_data: AccountData = None
@@ -151,16 +152,16 @@ class JoinedRoom(BaseModel):
     unread_threads_notifications: NotificationCounts = None
 
 
-class KnockedRoom(BaseModel):
+class KnockedRoom(CustomBaseModel):
     """Represents a room the user is now knocking to join"""
 
-    class KnockState(BaseModel):
+    class KnockState(CustomBaseModel):
         events: list[StrippedStateEvent] = None
 
     knock_state: KnockState
 
 
-class LeftRoom(BaseModel):
+class LeftRoom(CustomBaseModel):
     """Represents a room the user has left and is no longer a member of"""
 
     account_data: AccountData = None
@@ -168,7 +169,7 @@ class LeftRoom(BaseModel):
     timeline: Timeline = None
 
 
-class Rooms(BaseModel):
+class Rooms(CustomBaseModel):
     # noinspection PyDataclass
     invite: dict[str, InvitedRoom] = Field(default_factory=dict)
     """Rooms that the user has been invited to"""
@@ -183,7 +184,7 @@ class Rooms(BaseModel):
     """Rooms that the user has left and is no longer a member of"""
 
 
-class SyncResponse(BaseModel):
+class SyncResponse(CustomBaseModel):
     """Response of /sync"""
 
     account_data: AccountData = None

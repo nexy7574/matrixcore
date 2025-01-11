@@ -381,7 +381,7 @@ class MatrixCoreHTTPClient:
 
     async def login(
         self,
-        type: str,
+        login_type: str,
         device_id: str = None,
         identifier: dict[Literal["type"] | str, Any] = None,
         initial_device_display_name: str = None,
@@ -393,7 +393,8 @@ class MatrixCoreHTTPClient:
 
         This function, if successful, will populate this client's login state.
 
-        :param type: The type of login to perform. Usually "m.login.password". Can be fetched with `get_login_types`.
+        :param login_type: The type of login to perform. Usually "m.login.password".
+        Can be fetched with `get_login_types`.
         :param device_id: ID of the client device. Auto-generated if not provided. Must be consistent!
         :param identifier: Identification information for a user
         :param initial_device_display_name: Initial device display name. Ignored for existing `device_id`s.
@@ -405,7 +406,7 @@ class MatrixCoreHTTPClient:
         :raises RateLimited: This request was rate-limited.
         :raises ValueError: You provided malformed data.
         """
-        payload = {"type": type}
+        payload = {"type": login_type}
         if device_id is not None:
             payload["device_id"] = device_id
         if initial_device_display_name is not None:
@@ -419,6 +420,7 @@ class MatrixCoreHTTPClient:
                 raise ValueError("'type' is a required key in `identifier`")
             payload["identifier"] = identifier
 
+        log.debug(payload)
         return await self._post(
             self.construct_uri("client", "v3", "login"),
             data=payload,
