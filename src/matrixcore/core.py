@@ -797,6 +797,8 @@ class MatrixCore:
         :param kdata: The data to send.
         :return: None
         """
+        if event != "raw_event":
+            self.dispatch("raw_event", event, *data, **kdata)
         tasks = []
         for callback in self.event_handlers.get(event, []):
             task = asyncio.create_task(callback(*data, **kdata), name=f"callback_{event}_{uuid.uuid4().hex}")
@@ -854,11 +856,11 @@ class MatrixCore:
                     for event in joined_room.state.events:
                         room_obj.process_state_event(event)
                         self.event_cache.append(event)
-                        # self.dispatch(event.type, room_obj, event)
+                        self.dispatch(event.type, room_obj, event)
                 if joined_room.timeline:
                     for event in joined_room.timeline.events:
                         self.event_cache.append(event)
-                        # self.dispatch(event.type, room_obj, event)
+                        self.dispatch(event.type, room_obj, event)
 
         if data.rooms.leave:
             for room_id, left_room in data.rooms.leave.items():

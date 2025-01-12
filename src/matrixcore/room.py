@@ -431,8 +431,9 @@ class Room:
         """
         Processes a state event and sets the appropriate attributes.
         """
+        content = event.content
+
         try:
-            content = event.content.model_dump()
             match event.type:
                 case "m.room.create":
                     content = MRoomCreate.model_validate(content)
@@ -481,10 +482,21 @@ class Room:
                     log.debug("Unrecognised state event while processing %s: %r", self.id, event)
         except ValidationError as e:
             # If the body is empty and the event has redaction info, just ignore. Otherwise, scream.
-            if not event.content and event.unsigned and event.unsigned.redacted_because:
+            if (
+                    len(content) == 0
+                    and event.unsigned is not None
+                    and event.unsigned.redacted_because is not None
+            ):
                 log.debug("Ignoring redacted state event for room %r: %r", self.id, event)
             else:
-                log.warning("Ignoring invalid state event for room %r: %r", self.id, event, exc_info=e)
+                log.warning(
+                    "Ignoring invalid state event for room %r: %r -\n%s",
+                    self.id,
+                    event,
+                    event.model_dump_json(indent=2),
+                    exc_info=e
+                )
+                pass
         else:
             key = (event.type, event.state_key)
             self.raw_state[key] = event

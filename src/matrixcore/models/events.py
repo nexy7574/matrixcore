@@ -68,7 +68,7 @@ class ClientEventWithoutRoomID(CustomBaseModel):
         replaces_state: str = None
         """The event ID of the previous state of this state event."""
 
-    content: CustomBaseModel
+    content: dict[str, typing.Any]
     """The body of this event, as created by the client which sent it."""
     event_id: str
     """The globally unique identifier for this event."""
