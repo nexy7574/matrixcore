@@ -32,15 +32,15 @@ from .models import (
     Empty,
     EventSendResponse,
     Filter,
-    SyncInvitedRoom,
     JoinResponse,
-    SyncKnockedRoom,
-    SyncLeftRoom,
     LoginFlows,
     LoginResponse,
     MRoomPowerLevels,
     ResolveRoomAliasResponse,
     StrippedStateEvent,
+    SyncInvitedRoom,
+    SyncKnockedRoom,
+    SyncLeftRoom,
     SyncResponse,
     UserProfile,
     WhoAmI,
@@ -420,11 +420,7 @@ class MatrixCoreHTTPClient:
             payload["identifier"] = identifier
 
         log.debug(payload)
-        return await self._post(
-            self.construct_uri("client", "v3", "login"),
-            data=payload,
-            model=LoginResponse
-        )
+        return await self._post(self.construct_uri("client", "v3", "login"), data=payload, model=LoginResponse)
 
     async def logout(self, all_devices: bool = False) -> Empty:
         """

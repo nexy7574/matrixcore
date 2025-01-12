@@ -15,7 +15,7 @@ import typing
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .lib import RoomPredecessor, CustomBaseModel
+from .lib import CustomBaseModel, RoomPredecessor
 
 __all__ = [
     "MRoomMessage",
@@ -91,7 +91,7 @@ class ClientEventWithoutRoomID(CustomBaseModel):
     """Contains optional extra information about the event."""
 
     def __hash__(self):
-        return hash((self.event_id, self.type, self.state_key or ''))
+        return hash((self.event_id, self.type, self.state_key or ""))
 
     def __eq__(self, other):
         return hasattr(other, "event_id") and self.event_id == other.event_id
@@ -107,12 +107,14 @@ class ClientEvent(ClientEventWithoutRoomID):
     """The ID of the room associated with this event."""
 
     def __hash__(self):
-        return hash((self.event_id, self.type, self.state_key or '', self.room_id))
+        return hash((self.event_id, self.type, self.state_key or "", self.room_id))
 
     def __eq__(self, other):
         return (
-            hasattr(other, "event_id") and self.event_id == other.event_id
-            and hasattr(other, "room_id") and self.room_id == other.room_id
+            hasattr(other, "event_id")
+            and self.event_id == other.event_id
+            and hasattr(other, "room_id")
+            and self.room_id == other.room_id
         )
 
 
@@ -148,9 +150,12 @@ class StrippedStateEvent(BaseModel):
 
     def __eq__(self, other):
         return (
-            hasattr(other, "type") and self.type == other.type
-            and hasattr(other, "state_key") and self.state_key == other.state_key
-            and hasattr(other, "content") and other.content == self.content
+            hasattr(other, "type")
+            and self.type == other.type
+            and hasattr(other, "state_key")
+            and self.state_key == other.state_key
+            and hasattr(other, "content")
+            and other.content == self.content
         )
 
 

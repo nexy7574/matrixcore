@@ -482,11 +482,7 @@ class Room:
                     log.debug("Unrecognised state event while processing %s: %r", self.id, event)
         except ValidationError as e:
             # If the body is empty and the event has redaction info, just ignore. Otherwise, scream.
-            if (
-                    len(content) == 0
-                    and event.unsigned is not None
-                    and event.unsigned.redacted_because is not None
-            ):
+            if len(content) == 0 and event.unsigned is not None and event.unsigned.redacted_because is not None:
                 log.debug("Ignoring redacted state event for room %r: %r", self.id, event)
             else:
                 log.warning(
@@ -494,7 +490,7 @@ class Room:
                     self.id,
                     event,
                     event.model_dump_json(indent=2),
-                    exc_info=e
+                    exc_info=e,
                 )
                 pass
         else:

@@ -1,10 +1,10 @@
 import typing
 
-from .lib import Any as AnyData, CustomBaseModel, EventSendResponse
 from pydantic import Field
 
 from ..media import MXCUri
-
+from .lib import Any as AnyData
+from .lib import CustomBaseModel, EventSendResponse
 
 __all__ = (
     "MText",
@@ -19,12 +19,14 @@ __all__ = (
 
 class Mentions(CustomBaseModel):
     """The mentions enabled for this message"""
+
     room: bool = None
     user_ids: list[str] = None
 
 
 class RelatesTo(CustomBaseModel):
     """The relation to another event"""
+
     event_id: str = None
     in_reply_to: EventSendResponse = Field(None, alias="m.in_reply_to")
     rel_type: str = None
@@ -32,6 +34,7 @@ class RelatesTo(CustomBaseModel):
 
 class ImageInfo(CustomBaseModel):
     """Metadata about the image, such as a thumbnail."""
+
     h: int = None
     """The height of the image in pixels."""
     w: int = None
@@ -48,6 +51,7 @@ class ImageInfo(CustomBaseModel):
 
 class MText(AnyData):
     """Represents the base m.text message."""
+
     msgtype: str = "m.text"
     """The type of this message"""
     body: str
@@ -64,16 +68,19 @@ class MText(AnyData):
 
 class MNotice(MText):
     """Represents a notice message, usually sent by bots."""
+
     msgtype: typing.Literal["m.notice"] = "m.notice"
 
 
 class MEmote(MText):
     """Represents an emote message"""
+
     msgtype: typing.Literal["m.emote"] = "m.emote"
 
 
 class MImage(MText):
     """Represents an image message"""
+
     msgtype: typing.Literal["m.image"] = "m.image"
     url: MXCUri
     """The URL to the image."""

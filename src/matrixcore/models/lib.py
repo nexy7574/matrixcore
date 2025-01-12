@@ -33,8 +33,9 @@ __all__ = [
     "RoomFilter",
     "RoomEventFilter",
     "EventFilter",
-    "CustomBaseModel"
+    "CustomBaseModel",
 ]
+
 
 class CustomBaseModel(BaseModel):
     """A custom base model that adds some utilities."""
@@ -49,7 +50,8 @@ class CustomBaseModel(BaseModel):
         :param sep: The separator to use between keys. Defaults to period.
         :return: The flattened dictionary.
         """
-        def flatten(d, parent_key=''):
+
+        def flatten(d, parent_key=""):
             items = []
             for k, v in d.items():
                 new_key = f"{parent_key}{sep}{k}" if parent_key else k
