@@ -236,6 +236,36 @@ class MatrixCoreHTTPClient:
         data = response.json()
         return model.model_validate(data)
 
+    async def _delete(
+            self,
+            uri: str,
+            query_params: dict[str, Any] | None = None,
+            extra_headers: dict[str, Any] | None = None,
+            *,
+            timeout: httpx.Timeout | float | int | None = None,
+    ) -> None:
+        """
+        Attempts to make a DELETE request with the given parameters.
+
+        :param uri: URI to make a DELETE request.
+        :param query_params: Query parameters to pass to the DELETE request.
+        :param extra_headers: Extra headers to pass to the DELETE request.
+        :param timeout: Override timeout for this request.
+        """
+        headers = self.request_headers
+        if extra_headers:
+            headers.update(extra_headers)
+        kwargs = {"headers": headers}
+
+        if query_params:
+            kwargs["params"] = query_params
+        if timeout is not None:
+            kwargs["timeout"] = timeout
+
+        response = await self.client.delete(uri, **kwargs)
+        if response.status_code not in range(200, 300):
+            raise MatrixHTTPException.from_response(response)
+
     def clear(self) -> Self:
         """Clears the current login state (i.e. null user_id, access_token, device_id, etc.)"""
         self.access_token = None
@@ -620,7 +650,7 @@ class MatrixCoreHTTPClient:
         :param room_id: The room ID to ban the user from.
         :param user_id: The user ID to ban.
         :param reason: The reason for banning the user.
-        :return: Empty - the request was successful.
+        :return: Empty - the request was suc cessful.
         """
         payload = {"user_id": user_id}
         if reason:
