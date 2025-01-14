@@ -3,7 +3,7 @@ import typing
 from pydantic import Field
 
 from ..media import MXCUri
-from .lib import Any as AnyData
+from .lib import AnyData as AnyData
 from .lib import CustomBaseModel, EventSendResponse
 
 __all__ = (

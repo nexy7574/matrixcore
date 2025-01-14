@@ -26,17 +26,20 @@ import httpx
 from pydantic import BaseModel, ValidationError
 
 from .errors import MatrixHTTPException
-from .models import Any as AnyData
+from .models import AnyData as AnyData
 from .models import (
     ClientEvent,
     Empty,
     EventSendResponse,
     Filter,
+    FilterResponse,
     JoinResponse,
     LoginFlows,
     LoginResponse,
     MRoomPowerLevels,
     ResolveRoomAliasResponse,
+    RoomEventFilter,
+    RoomMessagesResponse,
     StrippedStateEvent,
     SyncInvitedRoom,
     SyncKnockedRoom,
@@ -45,7 +48,6 @@ from .models import (
     UserProfile,
     WhoAmI,
 )
-from .models.lib import FilterResponse
 from .room import Room
 
 T = TypeVar("T")
@@ -237,12 +239,12 @@ class MatrixCoreHTTPClient:
         return model.model_validate(data)
 
     async def _delete(
-            self,
-            uri: str,
-            query_params: dict[str, Any] | None = None,
-            extra_headers: dict[str, Any] | None = None,
-            *,
-            timeout: httpx.Timeout | float | int | None = None,
+        self,
+        uri: str,
+        query_params: dict[str, Any] | None = None,
+        extra_headers: dict[str, Any] | None = None,
+        *,
+        timeout: httpx.Timeout | float | int | None = None,
     ) -> None:
         """
         Attempts to make a DELETE request with the given parameters.
@@ -772,6 +774,42 @@ class MatrixCoreHTTPClient:
             payload["room_id"] = unsupported_custom_room_id
 
         return await self._post(self.construct_uri("client", "v3", "createRoom"), data=payload, model=JoinResponse)
+
+    async def get_room_messages(
+        self,
+        room_id: str,
+        direction: Literal["f", "b"],
+        event_filter: RoomEventFilter | None = None,
+        from_: str | None = None,
+        to: str | None = None,
+        limit: int = 10,
+    ) -> RoomMessagesResponse:
+        """
+        Fetches a chunk of message history for a room.
+
+        See also: https://spec.matrix.org/v1.13/client-server-api/#get_matrixclientv3roomsroomidmessages
+
+        :param room_id: The ID of the room.
+        :param direction: The direction of the messages.
+        :param event_filter: The event filter to use to filter events.
+        :param from_: The token to receive messages from
+        :param to: The token to receive messages to.
+        :param limit: The maximum number of messages to return.
+        :return: RoomMessagesResponse - the result of fetching the messages.
+        """
+        query = {"dir": direction, "limit": limit}
+        if from_:
+            query["from"] = from_
+        if to:
+            query["to"] = to
+        if event_filter:
+            query["filter"] = event_filter.model_dump(exclude_unset=True)
+
+        return await self._get(
+            self.construct_uri("client", "v3", "rooms", room_id, "messages"),
+            query_params=query,
+            model=RoomMessagesResponse,
+        )
 
 
 class MatrixCore:

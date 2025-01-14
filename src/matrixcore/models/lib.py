@@ -20,7 +20,7 @@ from ..media import MXCUri
 
 __all__ = [
     "Empty",
-    "Any",
+    "AnyData",
     "EventSendResponse",
     "JoinResponse",
     "LoginFlows",
@@ -34,6 +34,7 @@ __all__ = [
     "RoomEventFilter",
     "EventFilter",
     "CustomBaseModel",
+    "FilterResponse",
 ]
 
 
@@ -68,7 +69,7 @@ class Empty(CustomBaseModel):
     """Represents an empty response body."""
 
 
-class Any(CustomBaseModel):
+class AnyData(CustomBaseModel):
     """Represents a response body with no pre-defined content"""
 
     model_config = ConfigDict(extra="allow")
@@ -176,7 +177,7 @@ class ResolveRoomAliasResponse(CustomBaseModel):
     """The servers that are aware of the room ID"""
 
 
-class UserProfile(Any):
+class UserProfile(AnyData):
     """
     Represents a user's profile.
 
@@ -194,7 +195,7 @@ class UserProfile(Any):
 
     @classmethod
     @field_validator("unstable_msc4175_timezone", mode="before")
-    def is_valid_timezone(cls, value: Any) -> zoneinfo.ZoneInfo:
+    def is_valid_timezone(cls, value: AnyData) -> zoneinfo.ZoneInfo:
         """Validates that the given value is a timezone that exists"""
         try:
             return zoneinfo.ZoneInfo(str(value))

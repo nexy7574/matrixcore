@@ -11,8 +11,11 @@
 # WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 # See the License for the specific language governing permissions and
 # limitations under the License.
+import asyncio
+import enum
 import logging
 import os
+import random
 import typing
 from enum import Enum
 from fnmatch import fnmatch
@@ -20,7 +23,7 @@ from ipaddress import ip_address
 
 from pydantic import BaseModel, ValidationError
 
-from .errors import NotAuthorised
+from .errors import NotAuthorised, RateLimited
 from .models import (
     ClientEventWithoutRoomID,
     Empty,
@@ -36,6 +39,8 @@ from .models import (
     MRoomName,
     MRoomPowerLevels,
     MRoomTopic,
+    RoomEventFilter,
+    RoomMessagesResponse,
     SyncRoomSummary,
 )
 from .user import User
@@ -53,6 +58,17 @@ OVERRIDE_PL_CHECKS = os.getenv("MATRIXCORE_GLOBAL_ROOM_OVERRIDE_POWER_LEVEL_CHEC
     "1",
     "yes",
     "on",
+)
+
+__all__ = (
+    "GuestAccess",
+    "JoinRule",
+    "HistoryVisibility",
+    "ServerACLs",
+    "TimelineHistoryDirection",
+    "TimelineHistoryIterator",
+    "Member",
+    "Room",
 )
 
 
@@ -152,6 +168,76 @@ class ServerACLs(BaseModel):
 
         # 4. If no rules match, deny access.
         return False
+
+
+class TimelineHistoryDirection(enum.Enum):
+    NEWEST_FIRST = "b"
+    """Return the newest messages first - go backwards in the timeline"""
+    OLDEST_FIRST = "f"
+    """Return the oldest messages first - go forward in the timeline"""
+
+
+class TimelineHistoryIterator:
+    def __init__(
+        self,
+        room: "Room",
+        filter_: RoomEventFilter | None = None,
+        direction: TimelineHistoryDirection = TimelineHistoryDirection.NEWEST_FIRST,
+        chunk_size: int = 10,
+        from_token: str | None = None,
+        until_token: str | None = None,
+        *,
+        handle_ratelimit: bool = True,
+    ):
+        if chunk_size < 1:
+            raise ValueError("Chunk size must be at least 1.")
+        self.room = room
+        self.filter = filter_
+        self.direction = direction
+        self.chunk_size = property(lambda _: chunk_size)  # read-only
+        self.next_batch = from_token
+        self.until = until_token
+        self.handle_ratelimit = handle_ratelimit
+
+    async def __aiter__(self):
+        return self
+
+    async def __anext__(self) -> RoomMessagesResponse:
+        try:
+            response = await self.room._client.http.get_room_messages(
+                self.room.id, self.direction.value, self.filter, self.next_batch, self.until, self.chunk_size
+            )
+        except RateLimited as err:
+            if self.handle_ratelimit:
+                log.warning(
+                    "Encountered a ratelimit when iterating through history for %r. Sleeping for %.2f seconds.",
+                    self.room,
+                    err.retry_after,
+                )
+                await asyncio.sleep(err.retry_after + random.random())
+                return await anext(self)
+            raise err
+        if len(response.state) + len(response.events) == 0 and response.end is None:
+            raise StopAsyncIteration
+        self.next_batch = response.end
+        return response
+
+    async def flatten(self) -> list[RoomMessagesResponse]:
+        """
+        Runs the history iteration until it is exhausted and returns all values as a list.
+
+        Equivalent to:
+        ```
+        values = []
+        async for response in history:
+            values.append(response)
+        return values
+        ```
+        """
+        values = []
+        async for response in self:
+            values.append(response)
+        return values
 
 
 class Member(User):
@@ -580,3 +666,13 @@ class Room:
         if user_id in self.members and self.members[user_id].membership.membership != "ban":
             return Empty()
         return await self._client.http.unban_user(self.id, user_id, reason)
+
+    def history(
+        self,
+        filter_: RoomEventFilter | None = None,
+        direction: TimelineHistoryDirection = TimelineHistoryDirection.NEWEST_FIRST,
+        chunk_size: int = 10,
+        from_token: str | None = None,
+        until_token: str | None = None,
+    ) -> TimelineHistoryIterator:
+        return TimelineHistoryIterator(self, filter_, direction, chunk_size, from_token, until_token)

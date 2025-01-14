@@ -88,7 +88,7 @@ testpaths = [
 
 [tool.ruff]
 exclude = [".git", "examples"]
-target-version = "py39"
+target-version = "py310"
 line-length = 120
 indent-width = 4
 respect-gitignore = true
