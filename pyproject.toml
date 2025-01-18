@@ -16,7 +16,8 @@ dynamic = ["version"]
 dependencies = [
     "httpx[http2]~=0.28",
     "pydantic~=2.10",
-    "tzdata>=2024.2"
+    "tzdata>=2024.2",
+    "python-olm~=3.2"
 ]
 
 #classifiers = [
@@ -45,6 +46,9 @@ Funding = "https://ko-fi.com/nexy7574"
 Homepage = "https://matrixcore.dev"
 
 [project.optional-dependencies]
+speed = [
+    "orjson~=3.10"
+]
 dev = [
     'mkdocs',
     'mkdocs-material',
